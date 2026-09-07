@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-5</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-8</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -125,6 +125,16 @@
     </fieldset>
 
     <fieldset>
+      <legend>Colonnes du détail (PDF)</legend>
+      <div class="cases" id="colDetail">
+        <label><input type="checkbox" id="detPorteur" checked> Porteur</label>
+        <label><input type="checkbox" id="detGroupement" checked> Groupement</label>
+        <label><input type="checkbox" id="detCommentaire" checked> Commentaire</label>
+      </div>
+      <p class="aide">S'applique aux tableaux de détail et au sommaire des revues PDF.</p>
+    </fieldset>
+
+    <fieldset>
       <legend>Historique</legend>
       <div class="grille">
         <div><label for="libelleEdition">Nom de l'édition à archiver</label>
@@ -179,7 +189,8 @@ const CHAMPS_PEPS = [
   ["colFin",        "Date de fin"],
   ["colSuspension", "Date de suspension"],
   ["colAbandon",    "Date d'abandon"],
-  ["colP2A",        "Millésimes P2A"]
+  ["colP2A",        "Millésimes P2A"],
+  ["colCommentaire","Commentaire"]
 ];
 
 const CHAMPS_MEC = [
@@ -187,7 +198,9 @@ const CHAMPS_MEC = [
   ["mecType",       "Type (recommandation / rappel)"],
   ["mecAvancement", "Avancement"],
   ["mecStatut",     "Statut"],
-  ["mecPorteur",    "Porteur"]
+  ["mecPorteur",    "Porteur"],
+  ["mecGroupement", "Groupement"],
+  ["mecCommentaire","Commentaire"]
 ];
 
 const TYPES = [
@@ -479,6 +492,8 @@ const INDICES = {
   colAvancement:["avancement"], colDebut:["date_debut","date_début","debut"],
   colFin:["date_fin","fin"], colSuspension:["date_suspension","suspension"],
   colAbandon:["date_abandon","abandon"], colP2A:["p2a"],
+  colCommentaire:["commentaire","observation","remarque"],
+  mecGroupement:["groupement"], mecCommentaire:["commentaire","observation","remarque"],
   mecLibelle:["libelle","libellé","recommandation","intitule"],
   mecType:["reccomandation_rappel","recommandation_rappel","type"],
   mecAvancement:["avancement"], mecStatut:["statut"], mecPorteur:["porteur","pilote"]
@@ -703,6 +718,8 @@ function bilanP2A(fraction){
       nature: txt(l[cfg.colNature]),
       libelle: txt(l[cfg.colLibelle]),
       porteur: txt(l[cfg.colPorteur]),
+      groupement: txt(l[cfg.colGroupement]),
+      commentaire: txt(l[cfg.colCommentaire]),
       avancement: versPourcent(l[cfg.colAvancement], fraction),
       interrompu: [cfg.colSuspension, cfg.colAbandon].some(c => c && versDate(l[c]))
     });
@@ -1685,10 +1702,11 @@ function pageSynthesePdf(doc, ctx, jeu){
   })), 87);
 
   doc.line(MARGE_P, haut + 74, droite, haut + 74);
-  return blocFocusPdf(doc, ctx, haut + 84, jeu);
+  return blocFocusPdf(doc, ctx, haut + 84, jeu);   // { y, zones }
 }
 
 function blocFocusPdf(doc, ctx, y, jeu){
+  const zones = [];
   const entetes = (yy) => {
     for(const c of COLONNES_FOCUS){
       doc.setFontSize(c.taille);
@@ -1701,15 +1719,18 @@ function blocFocusPdf(doc, ctx, y, jeu){
   entetes(y);
 
   let ligne = y + 11;
+  let page = doc.internal.getNumberOfPages();
   const hauteur = 9.5, pas = 11;
   for(const cat of jeu.categories){
     if(ligne + hauteur > basDe(doc)){
       const yy = nouvelleFeuillePdf(doc, ctx);
+      page = doc.internal.getNumberOfPages();
       doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
       doc.text("Focus " + jeu.axe + " et statut (suite)", MARGE_P, yy);
       entetes(yy);
       ligne = yy + 11;
     }
+    zones.push({ cle:cat.cle, statut:null, page, x:MARGE_P, y:ligne, l:66, h:hauteur });
     doc.setFillColor(...cat.couleur);
     doc.rect(MARGE_P, ligne + 3.2, 3, 3, "F");
     doc.setFontSize(7.5); doc.setTextColor(61, 61, 58);
@@ -1722,10 +1743,14 @@ function blocFocusPdf(doc, ctx, y, jeu){
       doc.setFontSize(c.principal ? 10 : 9);
       doc.setTextColor(...(n ? s.encre : VIDE_P));
       doc.text(n ? String(n) : "—", c.x + c.l / 2, ligne + 6.4, { align:"center" });
+      if(n) zones.push({ cle:cat.cle, statut:c.cle, page, x:c.x, y:ligne, l:c.l, h:hauteur });
     }
     ligne += pas;
   }
-  return ligne + 5;
+  doc.setFontSize(6.5); doc.setTextColor(...ESTOMPE_P);
+  doc.text("Cliquez sur une ligne ou sur un chiffre pour ouvrir le détail correspondant.",
+           MARGE_P, ligne + 3.5);
+  return { y:ligne + 8, zones };
 }
 
 /* ---------- Page d'évolution ---------- */
@@ -1774,21 +1799,25 @@ function pageEvolutionPdf(doc, ctx, jeu, depart){
 
 /* ---------- Pages de détail ---------- */
 
-const POIDS = { libelle:3.4, porteur:0.9, groupement:0.9, date:0.8, avancement:0.7 };
+const POIDS = { libelle:3.0, porteur:0.9, groupement:0.9, commentaire:3.0,
+                date:0.8, avancement:0.7 };
 
-function enTeteTableauPdf(doc, colonnes, y){
-  doc.setFontSize(7.5);
-  const hauteur = 7;
-  doc.setFillColor(...FOND_P);
-  doc.rect(MARGE_P, y, droiteDe(doc) - MARGE_P, hauteur, "F");
-  doc.setTextColor(...GRIS_P);
-  colonnes.forEach(c => doc.text(c.titre, c.x, y + 4.6));
-  return y + hauteur + 3;
+/* Colonnes du détail : le libellé et l'avancement sont toujours là,
+   le reste suit les cases cochées. */
+function champsDetail(type){
+  const champs = [{ cle:"libelle",
+                    titre: type.id === "mec" ? "Préconisation" : "Projet ou action" }];
+  if(cfg.detPorteur !== false)    champs.push({ cle:"porteur",    titre:"Porteur" });
+  if(cfg.detGroupement !== false) champs.push({ cle:"groupement", titre:"Groupement" });
+  if(cfg.detCommentaire !== false) champs.push({ cle:"commentaire", titre:"Commentaire" });
+  champs.push({ cle:"avancement", titre:"Avct" });
+  return champs;
 }
 
 function pageDetailPdf(doc, ctx, jeu, depart){
   let y = assurerPlace(doc, ctx, depart + 6, 40);
   const droite = droiteDe(doc), bas = basDe(doc);
+  const ancres = new Map();
 
   const champs = jeu.champs;
   const somme = champs.reduce((a, c) => a + POIDS[c.cle], 0);
@@ -1808,34 +1837,34 @@ function pageDetailPdf(doc, ctx, jeu, depart){
     const membres = jeu.lignes.filter(l => l.categorie === cat.cle);
     if(!membres.length) continue;
 
-    y = assurerPlace(doc, ctx, y, 34);
+    y = assurerPlace(doc, ctx, y, 30);
+    ancres.set(cat.cle, { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 8) });
+
+    // En-tête de groupe : nom de la catégorie et intitulés de colonnes sur la même ligne.
     doc.setFillColor(...cat.couleur);
     doc.rect(MARGE_P, y - 3.2, 3, 3.6, "F");
     doc.setFontSize(9); doc.setTextColor(...ENCRE_P);
     doc.text(cat.libelle + "  (" + membres.length + ")", MARGE_P + 5, y);
-    y += 4;
-    y = enTeteTableauPdf(doc, colonnes, y);
+    doc.setFontSize(7); doc.setTextColor(...GRIS_P);
+    colonnes.slice(1).forEach(c => doc.text(c.titre, c.x, y));
+    doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
+    doc.line(MARGE_P, y + 2, droite, y + 2);
+    y += 7;
 
     for(const rang of STATUTS_P){
       const sous = membres.filter(l => l.statut === rang.cle);
       if(!sous.length) continue;
-
-      if(y > bas - 20){ y = nouvelleFeuillePdf(doc, ctx); y = enTeteTableauPdf(doc, colonnes, y); }
-      doc.setFillColor(...rang.fond);
-      doc.rect(MARGE_P, y - 0.6, droite - MARGE_P, 5.8, "F");
-      doc.setFontSize(7); doc.setTextColor(...rang.encre);
-      doc.text(rang.libelle + " — " + sous.length, MARGE_P + 2, y + 3.4);
-      y += 8;
+      ancres.set(cat.cle + "|" + rang.cle,
+                 { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 8) });
 
       for(const r of sous){
         doc.setFontSize(7.5);
         const cellules = colonnes.map(c =>
           c.cle === "avancement" ? [""] : doc.splitTextToSize(String(r[c.cle] || ""), c.l));
         const hauteur = Math.max(6, Math.max(...cellules.map(t => t.length)) * 3.4 + 2.2);
-        if(y + hauteur > bas){
-          y = nouvelleFeuillePdf(doc, ctx);
-          y = enTeteTableauPdf(doc, colonnes, y);
-        }
+        if(y + hauteur > bas) y = nouvelleFeuillePdf(doc, ctx);
+        ancres.set("ligne:" + r.id,
+                   { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 6) });
         colonnes.forEach((c, i) => {
           if(c.cle === "avancement"){
             bulleAvancement(doc, c.x, y + 0.4, r.avancement, r.statut, c.l);
@@ -1844,13 +1873,83 @@ function pageDetailPdf(doc, ctx, jeu, depart){
             doc.text(cellules[i], c.x, y + 4);
           }
         });
+        doc.setDrawColor(237, 235, 228); doc.setLineWidth(0.15);
+        doc.line(MARGE_P, y + hauteur - 1.4, droite, y + hauteur - 1.4);
         y += hauteur;
       }
-      y += 2;
     }
-    y += 4;
+    y += 5;
   }
-  return y;
+  return ancres;
+}
+
+/* ---------- Sommaire ---------- */
+
+function dessinerSommaire(doc, ctx, jeu, ancres){
+  const avant = doc.internal.getNumberOfPages();
+  let y = nouvelleFeuillePdf(doc, ctx);
+  const droite = droiteDe(doc), bas = basDe(doc);
+  const largeurTexte = droite - MARGE_P - 34;
+
+  doc.setFontSize(11); doc.setTextColor(...ENCRE_P);
+  doc.text("Sommaire", MARGE_P, y);
+  y += 9;
+
+  const categories = [...jeu.categories].sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
+  for(const cat of categories){
+    const membres = jeu.lignes.filter(l => l.categorie === cat.cle)
+      .sort((a, b) => String(a.libelle).localeCompare(String(b.libelle), "fr"));
+    if(!membres.length) continue;
+    if(y > bas - 14) y = nouvelleFeuillePdf(doc, ctx);
+
+    doc.setFillColor(...cat.couleur);
+    doc.rect(MARGE_P, y - 2.8, 3, 3.2, "F");
+    doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
+    doc.text(cat.libelle + "  (" + membres.length + ")", MARGE_P + 5, y);
+    const cibleCat = ancres.get(cat.cle);
+    if(cibleCat) doc.link(MARGE_P, y - 4, droite - MARGE_P, 5.4,
+                          { pageNumber:cibleCat.page, top:cibleCat.top });
+    y += 6;
+
+    for(const r of membres){
+      if(y > bas - 6) y = nouvelleFeuillePdf(doc, ctx);
+      doc.setFontSize(7.5);
+      const morceaux = doc.splitTextToSize(String(r.libelle || ""), largeurTexte);
+      const texte = morceaux.length > 1
+        ? morceaux[0].replace(/\s+\S*$/, "") + "…"
+        : morceaux[0];
+      doc.setTextColor(61, 61, 58);
+      doc.text(texte || "—", MARGE_P + 5, y);
+      const s = statutParCle(r.statut);
+      doc.setTextColor(...s.encre);
+      doc.text(s.libelle, droite, y, { align:"right" });
+      const cible = ancres.get("ligne:" + r.id);
+      if(cible) doc.link(MARGE_P, y - 3.4, droite - MARGE_P, 4.8,
+                         { pageNumber:cible.page, top:cible.top });
+      y += 5.2;
+    }
+    y += 2;
+  }
+  return doc.internal.getNumberOfPages() - avant;
+}
+
+/* Le sommaire est tracé en fin de document puis déplacé en page 2 :
+   les ancres doivent suivre ce décalage. */
+function decalerAncres(ancres, decalage){
+  const decalees = new Map();
+  for(const [cle, a] of ancres){
+    decalees.set(cle, { page: a.page >= 2 ? a.page + decalage : a.page, top:a.top });
+  }
+  return decalees;
+}
+
+function poserLiens(doc, zones, ancres){
+  for(const z of zones){
+    doc.setPage(z.page);
+    const cle = z.statut ? z.cle + "|" + z.statut : z.cle;
+    const cible = ancres.get(cle);
+    if(cible) doc.link(z.x, z.y, z.l, z.h, { pageNumber:cible.page, top:cible.top });
+  }
 }
 
 /* ---------- Constitution du jeu de données par type de revue ---------- */
@@ -1895,6 +1994,7 @@ function jeuProjets(c, natures, axe){
         libelle: txt(l[cfg.colLibelle]),
         porteur: txt(l[cfg.colPorteur]),
         groupement: txt(l[cfg.colGroupement]),
+        commentaire: txt(l[cfg.colCommentaire]),
         avancement: av,
         statut: statutDeLigne(av, inter),
         categorie: axe === "nature" ? txt(l[cfg.colNature]).toUpperCase()
@@ -1908,8 +2008,7 @@ function jeuProjets(c, natures, axe){
     categories: categoriesDepuis(valeurs),
     lignes,
     titreDetail: "Détail des projets et actions",
-    champs:[{ cle:"libelle", titre:"Projet ou action" }, { cle:"porteur", titre:"Porteur" },
-            { cle:"groupement", titre:"Groupement" }, { cle:"avancement", titre:"Avct" }]
+    champs: champsDetail({ id:"projets" })
   });
 }
 
@@ -1923,7 +2022,8 @@ function jeuMEC(c){
     lignes.push({
       libelle: txt(l[cfg.mecLibelle]),
       porteur: txt(l[cfg.mecPorteur]),
-      groupement: "",
+      groupement: txt(l[cfg.mecGroupement]),
+      commentaire: txt(l[cfg.mecCommentaire]),
       avancement: av,
       statut: statutDeLigne(av, estInterrompu(l)),
       categorie: v
@@ -1935,8 +2035,7 @@ function jeuMEC(c){
     categories: categoriesDepuis(valeurs),
     lignes,
     titreDetail: "Détail des recommandations et rappels au droit",
-    champs:[{ cle:"libelle", titre:"Recommandation" }, { cle:"porteur", titre:"Porteur" },
-            { cle:"avancement", titre:"Avct" }]
+    champs: champsDetail({ id:"mec" })
   });
 }
 
@@ -1946,7 +2045,8 @@ function jeuP2A(c){
   const lignes = c.p2a.lignes.map(l => ({
     libelle: l.libelle,
     porteur: l.porteur,
-    groupement: "",
+    groupement: l.groupement,
+    commentaire: l.commentaire,
     avancement: l.avancement,
     statut: statutDeLigne(l.avancement, l.interrompu),
     categorie: l.millesimes.split(" · ")[0],
@@ -1958,8 +2058,7 @@ function jeuP2A(c){
     categories: categoriesDepuis(valeurs),
     lignes,
     titreDetail: "Détail des projets et actions P2A",
-    champs:[{ cle:"libelle", titre:"Projet ou action" }, { cle:"porteur", titre:"Porteur" },
-            { cle:"avancement", titre:"Avct" }]
+    champs: champsDetail({ id:"p2a" })
   });
   // Recomptage par millésime : chaque ligne compte dans tous ses millésimes.
   valeurs.forEach(v => { jeu.parCategorie[v] = 0; STATUTS_P.forEach(s => jeu.croise[v][s.cle] = 0); });
@@ -2001,17 +2100,31 @@ async function generePDF(type){
   jeu.evolution = evolutionDe(jeu, cleBilan);
 
   const n = jeu.total;
+  const unite = type.id === "mec"
+    ? (n > 1 ? "préconisations" : "préconisation")
+    : (n > 1 ? "projets et actions" : "projet ou action");
   const ctx = {
-    titre: type.nom + " — " + c.annee,
-    sousTitre: "Édition du " + jjmmaaaa(new Date()) + " — " + n + " ligne" + (n > 1 ? "s" : ""),
+    titre: type.nom,
+    sousTitre: "Édition du " + jjmmaaaa(new Date()) + " — " + n + " " + unite,
     pages: ["portrait"]
   };
   const doc = new window.jspdf.jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
 
-  let y = pageSynthesePdf(doc, ctx, jeu);
-  y = pageEvolutionPdf(doc, ctx, jeu, y);
-  pageDetailPdf(doc, ctx, jeu, y);
+  jeu.lignes.forEach((l, i) => l.id = i);
+  const synthese = pageSynthesePdf(doc, ctx, jeu);
+  let y = pageEvolutionPdf(doc, ctx, jeu, synthese.y);
+  let ancres = pageDetailPdf(doc, ctx, jeu, y);
 
+  // Premier tracé du sommaire pour connaître sa longueur, puis tracé définitif
+  // avec les numéros de page décalés d'autant.
+  const avantSommaire = doc.internal.getNumberOfPages();
+  const nbSommaire = dessinerSommaire(doc, ctx, jeu, ancres);
+  for(let i = 0; i < nbSommaire; i++) doc.deletePage(doc.internal.getNumberOfPages());
+  ancres = decalerAncres(ancres, nbSommaire);
+  dessinerSommaire(doc, ctx, jeu, ancres);
+  for(let k = 0; k < nbSommaire; k++) doc.movePage(avantSommaire + 1 + k, 2 + k);
+
+  poserLiens(doc, synthese.zones, ancres);
   piedDePagePdf(doc, ctx);
   doc.save(type.fichier + "_" + c.annee + ".pdf");
   alerte("PDF créé : " + doc.getNumberOfPages() + " page(s).", true);
@@ -2050,6 +2163,8 @@ $("btnArchive").addEventListener("click", () =>
 $("tHisto").addEventListener("change", () =>
   chargeHistorique().then(recalcule).catch(e => alerte("Échec : " + e.message)));
 $("memeType").addEventListener("change", () => { construitComparaison(); recalcule(); });
+["detPorteur", "detGroupement", "detCommentaire"].forEach(id =>
+  $(id).addEventListener("change", () => { cfg[id] = $(id).checked; sauve(); }));
 $("intercalaires").addEventListener("change", () => {
   cfg.intercalaires = $("intercalaires").checked; sauve();
 });
@@ -2067,6 +2182,10 @@ async function demarre(){
     $("annee").value = cfg.annee || new Date().getFullYear();
     if(cfg.intercalaires === undefined) cfg.intercalaires = false;
     $("intercalaires").checked = cfg.intercalaires;
+    ["detPorteur", "detGroupement", "detCommentaire"].forEach(id => {
+      if(cfg[id] === undefined) cfg[id] = true;
+      $(id).checked = cfg[id];
+    });
     construitDiapos();
     construitTypes();
     appliqueType();
