@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-27</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-29</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1248,6 +1248,37 @@ function camembert(parts, titre){
   return cv.toDataURL("image/png").split(",")[1];
 }
 
+/* Anneau d'avancement : part remplie proportionnelle, pourcentage au centre. */
+function anneauAvancement(pct, libelle){
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 620;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#ffffff"; g.fillRect(0, 0, cv.width, cv.height);
+  const cx = 310, cy = 280, rExt = 235, rInt = 150;
+  const part = Math.max(0, Math.min(100, pct)) / 100;
+
+  const secteur = (debut, fin, couleur) => {
+    g.beginPath();
+    g.arc(cx, cy, rExt, debut, fin);
+    g.arc(cx, cy, rInt, fin, debut, true);
+    g.closePath();
+    g.fillStyle = couleur; g.fill();
+  };
+  const depart = -Math.PI / 2;
+  secteur(depart, depart + Math.PI * 2, "#E6E4DE");
+  if(part > 0) secteur(depart, depart + part * Math.PI * 2, couleurAvancement(pct, false));
+
+  g.fillStyle = "#26221f";
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.font = "bold 112px Tahoma, sans-serif";
+  g.fillText(Math.round(pct) + " %", cx, cy);
+  if(libelle){
+    g.font = "34px Tahoma, sans-serif";
+    g.fillText(libelle, cx, 580);
+  }
+  return cv.toDataURL("image/png").split(",")[1];
+}
+
 /* ---------- Tableaux ---------- */
 
 const LARGEUR_CAR = { 9:0.158, 10:0.176, 11:0.194 };
@@ -1432,40 +1463,31 @@ function pageMEC(doc, c){
   const sousTitre = "Situation au " + jjmmaaaa(new Date()) +
                     (ecarts ? " — " + sousTitreComparaison() : "");
   const page = nouvellePage(doc, "MEC 2023", sousTitre);
-  const largeur = (LARG - 1.2) / 4;
+  const largeur = (LARG - 0.8) / 3;
   const reste = m.familles.reco.reste + m.familles.rappel.reste;
-
-  // Avancement global, calculé sur les mêmes lignes que la matrice.
   const jeu = jeuMEC(c);
   const global = Math.round(jeu.global * 100);
-  // Écart avec l'édition de référence, exprimé en points.
-  let ecartPts = null;
-  if(ecarts){
-    const ref = editionChoisie($("revB").value);
-    const avant = ref && ref.donnees && ref.donnees.mec ? ref.donnees.mec.avancement : null;
-    if(avant != null) ecartPts = Math.round(jeu.global * 100) - Math.round(avant * 100);
-  }
 
-  cartouche(doc, page, MARGE, largeur, global + " %",
-            "d'avancement global", encreAvancement(global, false), ecartPts, "haut");
-  cartouche(doc, page, MARGE + largeur + 0.4, largeur, m.familles.reco.total,
+  cartouche(doc, page, MARGE, largeur, m.familles.reco.total,
             "recommandations", "#C0504D", em ? em.recoTotal : null, "neutre");
-  cartouche(doc, page, MARGE + 2 * (largeur + 0.4), largeur, m.familles.rappel.total,
+  cartouche(doc, page, MARGE + largeur + 0.4, largeur, m.familles.rappel.total,
             "rappels au droit", "#7f6f6c", em ? em.rappelTotal : null, "neutre");
-  cartouche(doc, page, MARGE + 3 * (largeur + 0.4), largeur, reste,
+  cartouche(doc, page, MARGE + 2 * (largeur + 0.4), largeur, reste,
             "en cours de réalisation", "#F79646",
             em && em.recoReste != null && em.rappelReste != null
               ? em.recoReste + em.rappelReste : null, "bas");
+
+  // Anneau d'avancement global à gauche, état d'avancement à droite.
+  const yGraph = Y_CONTENU + 0.2;
+  image(doc, page, { x:4.8, y:yGraph, w:6.4, h:6.4,
+                     base64:anneauAvancement(global, "Avancement global") });
 
   const png = camembert([
     { nom:"Terminé", valeur:(m.familles.reco.total + m.familles.rappel.total) - reste,
       couleur:"#9BBB59" },
     { nom:"En cours de réalisation", valeur:reste, couleur:"#C0504D" }
   ], "État d'avancement");
-  // Le camembert et la matrice sont centrés verticalement dans la zone de contenu.
-  const hBloc = 6.1;
-  const yBloc = Y_CONTENU + (Y_MAX - Y_CONTENU - hBloc) / 2;
-  image(doc, page, { x:MARGE, y:yBloc, w:9.8, h:hBloc, base64:png });
+  image(doc, page, { x:13.4, y:yGraph + 0.15, w:9.8, h:6.1, base64:png });
 
   // Matrice catégorie x statut, comme le bloc focus des PDF, aux teintes du diaporama.
   // Ordre imposé : recommandation majeure, rappel au droit principal,
@@ -1488,14 +1510,15 @@ function pageMEC(doc, c){
   const matrice = categories.map(cat => {
     const l = jeu.croise[cat.cle] || {};
     const total = ordre.reduce((s, k) => s + (l[k] || 0), 0);
-    return [cat.libelle + "  (" + total + ")"].concat(ordre.map(k =>
-      Object.assign({ texte: l[k] ? String(l[k]) : "—" }, teintes[k])));
+    return [cat.libelle].concat(ordre.map(k =>
+      Object.assign({ texte: l[k] ? String(l[k]) : "—" }, teintes[k])))
+      .concat([{ texte:String(total), gras:true }]);
   });
 
-  tableauPagine(doc, { page, x:MARGE + 10.4, y:yBloc,
-    largeurs:[4.6, 2.5, 2.5, 2.5, 2.7],
-    entetes:["Catégorie", "À engager", "En cours", "Terminé", "Interrompu"],
-    alignes:["start", "center", "center", "center", "center"],
+  tableauPagine(doc, { page, x:MARGE, y:yGraph + 7.0,
+    largeurs:[8.0, 3.4, 3.4, 3.4, 3.4, 3.6],
+    entetes:["Catégorie", "À engager", "En cours", "Terminé", "Interrompu", "Total"],
+    alignes:["start", "center", "center", "center", "center", "center"],
     titreSuite:null, lignes:matrice });
 
   if(m.resteListe.length){
@@ -1566,7 +1589,7 @@ async function genere(){
   await chargeModele();
 
   const c = calcul, doc = creeDoc(), inclus = cfg.diapos || [];
-  pageCouverture(doc, type.nom + "\n" + c.annee);
+  pageCouverture(doc, type.nom + " " + c.annee);
 
   if(inclus.includes("d1")) pageActualites(doc, c);
   if(inclus.includes("d2")) pageNature(doc, c, c.peps, "PEPS", "peps");
