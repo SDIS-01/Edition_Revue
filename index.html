@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-14</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-17</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -763,8 +763,8 @@ function instantane(c){
   Object.entries(c.mec.parValeur).forEach(([v, d]) =>
     parValeur[v] = { total:d.total, reste:d.reste, famille:d.famille });
   // Agrégats de la trame PDF, pour pouvoir tracer l'évolution d'une édition à l'autre.
-  const jp = jeuProjets(c, ["PEPS"], "priorite");
-  const ja = jeuProjets(c, ["AV"], "priorite");
+  const jp = jeuProjets(c, ["PEPS"]);
+  const ja = jeuProjets(c, ["AV"]);
   const jm = jeuMEC(c);
   const j2 = jeuP2A(c);
   return {
@@ -1361,7 +1361,7 @@ function pageNature(doc, c, b, titre, cle){
             "interrompus en " + c.annee, "#595959", null, "neutre");
 
   // Répartition du portefeuille en cours par priorité et par statut.
-  const jeu = jeuProjets(c, [b.nature], "priorite");
+  const jeu = jeuProjets(c, [b.nature]);
   let y = section(doc, page, Y_CONTENU, "Répartition par priorité");
   const matrice = jeu.categories.map(cat => {
     const l = jeu.croise[cat.cle];
@@ -1697,6 +1697,13 @@ function pageSynthesePdf(doc, ctx, jeu){
              MARGE_P, y + 22);
   }
 
+  if(jeu.natures && jeu.natures.length){
+    doc.setFontSize(8); doc.setTextColor(...GRIS_P);
+    doc.text("Répartition par nature", 118, y);
+    legendePdf(doc, 118, y + 8, jeu.natures.map(n =>
+      ({ libelle:n.libelle, couleur:n.couleur, valeur:String(n.valeur) })), 80);
+  }
+
   let x = MARGE_P;
   for(const s of STATUTS_P){
     cadreValeur(doc, x, y + 28, 44, 18, s.libelle, String(jeu.parStatut[s.cle] || 0),
@@ -1708,17 +1715,18 @@ function pageSynthesePdf(doc, ctx, jeu){
   doc.line(MARGE_P, y + 54, droite, y + 54);
 
   const haut = y + 64, milieu = 105;
+  const repartition = jeu.donut || jeu.categories.map(c =>
+    ({ cle:c.cle, libelle:c.libelle, couleur:c.couleur, valeur:jeu.parCategorie[c.cle] || 0 }));
+  const totalRepartition = repartition.reduce((a, b) => a + b.valeur, 0) || jeu.total;
+
   doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
   doc.text("Répartition par statut", MARGE_P, haut);
-  doc.text("Répartition par " + jeu.axe, milieu + 6, haut);
+  doc.text("Répartition par " + (jeu.axeDonut || jeu.axe), milieu + 6, haut);
 
   const segStatut = STATUTS_P.map(s => ({ valeur:jeu.parStatut[s.cle] || 0, couleur:s.couleur }));
-  const segCategorie = jeu.categories.map(c =>
-    ({ valeur:jeu.parCategorie[c.cle] || 0, couleur:c.couleur }));
   if(jeu.total){
     doc.addImage(donut(segStatut, jeu.total), "PNG", 41.5, haut + 4, 28, 28);
-    doc.addImage(donut(segCategorie, jeu.totalCategories || jeu.total), "PNG",
-                 140.5, haut + 4, 28, 28);
+    doc.addImage(donut(repartition, totalRepartition), "PNG", 140.5, haut + 4, 28, 28);
   }
 
   legendePdf(doc, MARGE_P, haut + 42, STATUTS_P.map(s => ({
@@ -1728,8 +1736,8 @@ function pageSynthesePdf(doc, ctx, jeu){
   doc.setDrawColor(...TRAIT_P);
   doc.line(milieu, haut - 6, milieu, haut + 68);
 
-  legendePdf(doc, milieu + 6, haut + 42, jeu.categories.map(c => ({
-    libelle:c.libelle, couleur:c.couleur, valeur:String(jeu.parCategorie[c.cle] || 0)
+  legendePdf(doc, milieu + 6, haut + 42, repartition.map(c => ({
+    libelle:c.libelle, couleur:c.couleur, valeur:String(c.valeur)
   })), 87);
 
   doc.line(MARGE_P, haut + 74, droite, haut + 74);
@@ -1745,8 +1753,9 @@ function blocFocusPdf(doc, ctx, y, jeu){
       doc.text(c.titre, c.x + c.l / 2, yy + 7, { align:"center" });
     }
   };
+  const titreFocus = "Focus " + (jeu.libelleFocus || jeu.axe + " et statut");
   doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
-  doc.text("Focus " + jeu.axe + " et statut", MARGE_P, y);
+  doc.text(titreFocus, MARGE_P, y);
   entetes(y);
 
   let ligne = y + 11;
@@ -1757,7 +1766,7 @@ function blocFocusPdf(doc, ctx, y, jeu){
       const yy = nouvelleFeuillePdf(doc, ctx);
       page = doc.internal.getNumberOfPages();
       doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
-      doc.text("Focus " + jeu.axe + " et statut (suite)", MARGE_P, yy);
+      doc.text(titreFocus + " (suite)", MARGE_P, yy);
       entetes(yy);
       ligne = yy + 11;
     }
@@ -1847,8 +1856,10 @@ function champsDetail(type){
   return champs;
 }
 
-function pageDetailPdf(doc, ctx, jeu, depart){
-  let y = assurerPlace(doc, ctx, depart + 6, 40);
+/* Le détail ouvre toujours une nouvelle page : le sommaire vient s'insérer
+   juste avant, il ne doit donc pas couper un bloc déjà commencé. */
+function pageDetailPdf(doc, ctx, jeu){
+  let y = nouvelleFeuillePdf(doc, ctx);
   const droite = droiteDe(doc), bas = basDe(doc);
   const ancres = new Map();
 
@@ -1968,10 +1979,10 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
 
 /* Le sommaire est tracé en fin de document puis déplacé en page 2 :
    les ancres doivent suivre ce décalage. */
-function decalerAncres(ancres, decalage){
+function decalerAncres(ancres, decalage, seuil){
   const decalees = new Map();
   for(const [cle, a] of ancres){
-    decalees.set(cle, { page: a.page >= 2 ? a.page + decalage : a.page, top:a.top });
+    decalees.set(cle, { page: a.page > seuil ? a.page + decalage : a.page, top:a.top });
   }
   return decalees;
 }
@@ -2014,8 +2025,9 @@ function agrege(jeu){
   return jeu;
 }
 
-/* Projets et actions : l'axe transverse est la priorité, ou la nature en revue combinée. */
-function jeuProjets(c, natures, axe){
+/* Projets et actions : le focus croise priorité et nature, le camembert reste
+   par priorité, et la répartition par nature s'affiche en haut de la synthèse. */
+function jeuProjets(c, natures){
   const frac = detecteFraction(recPEPS, cfg.colAvancement);
   const lignes = [];
   natures.forEach(n => {
@@ -2023,6 +2035,8 @@ function jeuProjets(c, natures, axe){
     bilan.stockLignes.forEach(l => {
       const inter = [cfg.colSuspension, cfg.colAbandon].some(k => k && versDate(l[k]));
       const av = versPourcent(l[cfg.colAvancement], frac);
+      const prio = txt(l[cfg.colPriorite]) || "Sans priorité";
+      const nat = txt(l[cfg.colNature]).toUpperCase() || n;
       lignes.push({
         libelle: txt(l[cfg.colLibelle]),
         porteur: txt(l[cfg.colPorteur]),
@@ -2030,19 +2044,42 @@ function jeuProjets(c, natures, axe){
         commentaire: txt(l[cfg.colCommentaire]),
         avancement: av,
         statut: statutDeLigne(av, inter),
-        categorie: axe === "nature" ? txt(l[cfg.colNature]).toUpperCase()
-                                    : (txt(l[cfg.colPriorite]) || "Sans priorité")
+        priorite: prio,
+        nature: nat,
+        categorie: natures.length > 1 ? prio + " · " + nat : prio
       });
     });
   });
-  const valeurs = [...new Set(lignes.map(l => l.categorie))].sort();
-  return agrege({
-    axe: axe === "nature" ? "nature" : "priorité",
-    categories: categoriesDepuis(valeurs),
+  const priorites = [...new Set(lignes.map(l => l.priorite))].sort((a, b) => a.localeCompare(b, "fr"));
+  const valeurs = [...new Set(lignes.map(l => l.categorie))].sort((a, b) => a.localeCompare(b, "fr"));
+
+  // Une couleur par priorité, réutilisée pour les combinaisons priorité + nature.
+  const teinte = {};
+  priorites.forEach((p, i) => teinte[p] = CAT_COULEURS[i % CAT_COULEURS.length]);
+  const categories = valeurs.map(v => ({
+    cle:v, libelle:v, couleur:teinte[v.split(" · ")[0]] || CAT_COULEURS[0]
+  }));
+
+  const jeu = agrege({
+    axe: natures.length > 1 ? "priorité et nature" : "priorité",
+    axeDonut: "priorité",
+    libelleFocus: natures.length > 1 ? "priorité, nature et statut" : "priorité et statut",
+    categories,
     lignes,
     titreDetail: "Détail des projets et actions",
     champs: champsDetail({ id:"projets" })
   });
+
+  jeu.donut = priorites.map(p => ({
+    cle:p, libelle:p, couleur:teinte[p],
+    valeur: lignes.filter(l => l.priorite === p).length
+  }));
+  const listeNatures = [...new Set(lignes.map(l => l.nature))].sort();
+  jeu.natures = listeNatures.map((n, i) => ({
+    libelle:n, couleur:CAT_COULEURS[(i + 2) % CAT_COULEURS.length],
+    valeur: lignes.filter(l => l.nature === n).length
+  }));
+  return jeu;
 }
 
 function jeuMEC(c){
@@ -2127,9 +2164,9 @@ async function generePDF(type){
   let jeu, cleBilan;
   if(type.id === "mec"){ jeu = jeuMEC(c); cleBilan = "mec"; }
   else if(type.id === "p2a"){ jeu = jeuP2A(c); cleBilan = "p2a"; }
-  else if(type.id === "projets"){ jeu = jeuProjets(c, ["PEPS", "AV"], "nature"); cleBilan = "peps"; }
-  else if(type.id === "peps"){ jeu = jeuProjets(c, ["PEPS"], "priorite"); cleBilan = "peps"; }
-  else{ jeu = jeuProjets(c, ["AV"], "priorite"); cleBilan = "av"; }
+  else if(type.id === "projets"){ jeu = jeuProjets(c, ["PEPS", "AV"]); cleBilan = "peps"; }
+  else if(type.id === "peps"){ jeu = jeuProjets(c, ["PEPS"]); cleBilan = "peps"; }
+  else{ jeu = jeuProjets(c, ["AV"]); cleBilan = "av"; }
   jeu.evolution = evolutionDe(jeu, cleBilan);
 
   const n = jeu.total;
@@ -2145,17 +2182,20 @@ async function generePDF(type){
 
   jeu.lignes.forEach((l, i) => l.id = i);
   const synthese = pageSynthesePdf(doc, ctx, jeu);
-  let y = pageEvolutionPdf(doc, ctx, jeu, synthese.y);
-  let ancres = pageDetailPdf(doc, ctx, jeu, y);
+  pageEvolutionPdf(doc, ctx, jeu, synthese.y);
+  const avantDetail = doc.internal.getNumberOfPages();   // synthèse et évolution
+  let ancres = pageDetailPdf(doc, ctx, jeu);
 
   // Premier tracé du sommaire pour connaître sa longueur, puis tracé définitif
   // avec les numéros de page décalés d'autant.
   const avantSommaire = doc.internal.getNumberOfPages();
   const nbSommaire = dessinerSommaire(doc, ctx, jeu, ancres);
   for(let i = 0; i < nbSommaire; i++) doc.deletePage(doc.internal.getNumberOfPages());
-  ancres = decalerAncres(ancres, nbSommaire);
+  ancres = decalerAncres(ancres, nbSommaire, avantDetail);
   dessinerSommaire(doc, ctx, jeu, ancres);
-  for(let k = 0; k < nbSommaire; k++) doc.movePage(avantSommaire + 1 + k, 2 + k);
+  for(let k = 0; k < nbSommaire; k++){
+    doc.movePage(avantSommaire + 1 + k, avantDetail + 1 + k);
+  }
 
   poserLiens(doc, synthese.zones, ancres);
   piedDePagePdf(doc, ctx);
