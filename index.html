@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-9</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-14</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -323,6 +323,15 @@ function couleurEcart(d, sens){
   if(d == null || d === 0 || sens === "neutre") return "#6F6862";
   const favorable = sens === "haut" ? d > 0 : d < 0;
   return favorable ? "#4e6b28" : "#C0504D";
+}
+
+/* Avancement en couleur de texte, sans aplat : teintes assez sombres pour rester lisibles. */
+function encreAvancement(p, interrompu){
+  if(interrompu) return "#666660";
+  if(p >= 100) return "#3B6D11";
+  if(p >= 50)  return "#7A6000";
+  if(p >= 1)   return "#B35A16";
+  return "#993333";
 }
 
 function couleurAvancement(p, interrompu){
@@ -997,12 +1006,15 @@ const MODELE_OTP = "UEsDBBQAAAgAACdcJ13vDBQ6OAAAADgAAAAIAAAAbWltZXR5cGVhcHBsaWNh
 /* Géométrie reprise du modèle : page 28 × 21, cadres de titre à x = 1,4 sur 25,2 cm. */
 const L = 28, H = 21;
 const MARGE = 1.4, LARG = 25.2;
-const Y_TITRE = 3.25;     // titre ramené juste sous le bandeau haut
-const Y_SOUS = 4.8;       // ligne de sous-titre
-const Y_KPI = 5.5;        // chiffres clés
+const Y_TITRE = 1.35;     // bandeau blanc du titre, posé sur l'image d'en-tête
+const H_TITRE = 1.15;
+const Y_HAUT = 3.6;       // premier repère sous l'image d'en-tête
+const Y_SOUS = 3.7;       // ligne de sous-titre
+const Y_KPI = 4.3;        // chiffres clés
 const H_KPI = 1.8;
-const Y_CONTENU = 7.6;    // tableaux et graphiques
+const Y_CONTENU = 6.5;    // tableaux et graphiques
 const Y_MAX = 19.7;       // bas de page utile
+const BLEU_TITRE = "#2A6099";
 
 let modele = null;        // morceaux extraits du modèle, chargés une fois
 
@@ -1095,6 +1107,11 @@ function image(doc, page, o){
 function nouvellePage(doc, titre, sousTitre){
   const page = { type:"contenu", titre, sousTitre, frames:[] };
   doc.pages.push(page);
+  if(titre){
+    bloc(doc, page, { x:MARGE, y:Y_TITRE, w:LARG, h:H_TITRE, texte:titre,
+                      taille:22, gras:true, couleur:BLEU_TITRE, fond:"#FFFFFF",
+                      align:"center" });
+  }
   if(sousTitre){
     bloc(doc, page, { x:MARGE, y:Y_SOUS, w:LARG, h:0.6, texte:sousTitre,
                       taille:10, couleur:"#6F6862", align:"center" });
@@ -1110,7 +1127,11 @@ function section(doc, page, y, texte){
 }
 
 function pageCouverture(doc, texte){
-  doc.pages.push({ type:"couverture", texte, frames:[] });
+  const page = { type:"couverture", texte, frames:[] };
+  doc.pages.push(page);
+  bloc(doc, page, { x:MARGE, y:19.2, w:12, h:0.8,
+                    texte:"Version du " + jjmmaaaa(new Date()),
+                    taille:12, couleur:"#000000" });
 }
 
 function pageIntercalaire(doc, titre){
@@ -1120,18 +1141,19 @@ function pageIntercalaire(doc, titre){
 
 /* ---------- Assemblage du XML ---------- */
 
-function paragraphes(texte, styleP, styleT){
-  return String(texte == null ? "" : texte).split("\n").map(t =>
-    '<text:p' + (styleP ? ' text:style-name="' + styleP + '"' : "") + ">" +
-    '<text:span text:style-name="' + styleT + '">' + esc(t) + "</text:span></text:p>").join("");
-}
-
-function pageXML(page, numero){
+function pageXML(doc, page, numero){
   let xml;
   if(page.type === "couverture"){
+    // Le cadre de titre du gabarit garde son fond ; seule la taille du texte est imposée.
+    const st = styleTexte(doc, { taille:20, couleur:"#FFFFFF" });
+    const paras = String(page.texte || "").split("\n")
+      .map(t => '<text:p text:style-name="' + st + '">' + esc(t) + "</text:p>").join("");
     xml = modele.couverture.replace(
       '<text:p text:style-name="P2"><text:span text:style-name="T1">Cliquez ici pour ajouter un texte</text:span></text:p>',
-      paragraphes(page.texte, "P2", "T1"));
+      paras);
+    if(page.frames.length){
+      xml = xml.replace("<presentation:notes", page.frames.join("") + "<presentation:notes");
+    }
   }else if(page.type === "intercalaire"){
     xml = modele.intercalaire.replace(
       '<text:span text:style-name="T2">Titre du Chapitre</text:span>',
@@ -1139,15 +1161,9 @@ function pageXML(page, numero){
   }else{
     // Page de contenu : gabarit à bandeau haut, titre remonté sous le bandeau.
     xml = modele.intercalaire;
-    if(page.titre){
-      xml = xml.replace('svg:height="2.706cm" svg:x="1.4cm" svg:y="5.894cm"',
-                        'svg:height="1.5cm" svg:x="1.4cm" svg:y="' + Y_TITRE + 'cm"');
-      xml = xml.replace('<text:span text:style-name="T2">Titre du Chapitre</text:span>',
-                        '<text:span text:style-name="T2">' + esc(page.titre) + "</text:span>");
-    }else{
-      // Diapositive de suite : le bandeau reste, le titre n'est pas répété.
-      xml = xml.replace(/<draw:frame presentation:style-name="pr3"[\s\S]*?<\/draw:frame>/, "");
-    }
+    // Le titre est tracé par nos soins, en bandeau blanc au-dessus de l'image :
+    // le cadre de titre du gabarit est donc retiré dans tous les cas.
+    xml = xml.replace(/<draw:frame presentation:style-name="pr3"[\s\S]*?<\/draw:frame>/, "");
     if(page.frames.length){
       xml = xml.replace("<presentation:notes", page.frames.join("") + "<presentation:notes");
     }
@@ -1158,7 +1174,7 @@ function pageXML(page, numero){
 }
 
 function contentXML(doc){
-  const pages = doc.pages.map((p, i) => pageXML(p, i + 1)).join("");
+  const pages = doc.pages.map((p, i) => pageXML(doc, p, i + 1)).join("");
   return modele.entete +
     modele.polices +
     "<office:automatic-styles>" + modele.styles + doc.styles.join("") + "</office:automatic-styles>" +
@@ -1246,11 +1262,13 @@ function tableauPagine(doc, o){
   const taille = o.taille || 10;
   const maxLignes = o.maxLignes || 2;
 
+  const alignes = o.alignes || [];
   const entete = () => {
     let cx = o.x;
     o.entetes.forEach((e, i) => {
       bloc(doc, page, { x:cx, y, w:o.largeurs[i], h:0.75, texte:e, taille,
-                        gras:true, couleur:"#FFFFFF", fond:"#7f6f6c" });
+                        gras:true, couleur:"#FFFFFF", fond:"#7f6f6c",
+                        align:alignes[i] || "start" });
       cx += o.largeurs[i];
     });
     y += 0.75;
@@ -1265,7 +1283,7 @@ function tableauPagine(doc, o){
 
     if(y + hauteur > yMax){
       page = nouvellePage(doc, o.titreSuite || null, null);
-      y = Y_TITRE + (o.titreSuite ? 1.9 : 0.4);   // le titre n'est pas répété
+      y = o.titreSuite ? Y_CONTENU : Y_HAUT;      // le titre n'est pas répété
       entete();
     }
     let cx = o.x;
@@ -1275,6 +1293,7 @@ function tableauPagine(doc, o){
         x:cx, y, w:o.largeurs[i], h:hauteur, texte:contenu[i].join("\n"), taille,
         fond: objet.fond || (r % 2 ? "#f4f2ef" : "#ffffff"),
         couleur: objet.couleur || "#26221F",
+        align: objet.align || alignes[i] || "start",
         gras: !!objet.gras, trait:"#d8d5d0"
       });
       cx += o.largeurs[i];
@@ -1359,6 +1378,7 @@ function pageNature(doc, c, b, titre, cle){
   let etat = tableauPagine(doc, { page, x:MARGE, y,
     largeurs:[7.0, 3.6, 3.6, 3.6, 3.6, 3.8],
     entetes:["Priorité", "À engager", "En cours", "Terminé", "Interrompu", "Total"],
+    alignes:["start", "center", "center", "center", "center", "center"],
     titreSuite:null, lignes:matrice });
   page = etat.page; y = etat.y + 0.7;
 
@@ -1372,7 +1392,7 @@ function pageNature(doc, c, b, titre, cle){
   }
 
   if(b.interrompus.length){
-    if(y > Y_MAX - 3){ page = nouvellePage(doc, null, null); y = Y_TITRE + 0.4; }
+    if(y > Y_MAX - 3){ page = nouvellePage(doc, null, null); y = Y_HAUT; }
     y = section(doc, page, y, "Interrompus dans l'année");
     tableauPagine(doc, { page, x:MARGE, y, titreSuite:null, largeurs:colonnes,
       entetes:["Libellé", "Priorité", "Porteur", "Motif", "Date"],
@@ -1433,7 +1453,7 @@ function pageMEC(doc, c){
       titreSuite:null,
       lignes:m.resteListe.map(r => [
         r.libelle, r.type, r.porteur,
-        { texte:r.avancement + " %", fond:couleurAvancement(r.avancement, false) }
+        { texte:r.avancement + " %", couleur:encreAvancement(r.avancement, false), gras:true }
       ]) });
   }
 }
@@ -1466,8 +1486,8 @@ function pageP2A(doc, c){
     entetes:["Millésimes", "Nature", "Libellé", "Porteur", "Avancement"],
     lignes:p.lignes.map(l => [
       l.millesimes, l.nature, l.libelle, l.porteur,
-      { texte:l.avancement + " %", fond:couleurAvancement(l.avancement, l.interrompu),
-        couleur:l.interrompu ? "#FFFFFF" : "#26221F" }
+      { texte:l.avancement + " %", couleur:encreAvancement(l.avancement, l.interrompu),
+        gras:true }
     ]) });
 }
 
@@ -1484,7 +1504,7 @@ async function genere(){
   await chargeModele();
 
   const c = calcul, doc = creeDoc(), inclus = cfg.diapos || [];
-  pageCouverture(doc, type.nom + "\n" + c.annee + "\nÉdition du " + jjmmaaaa(new Date()));
+  pageCouverture(doc, type.nom + "\n" + c.annee);
 
   if(inclus.includes("d1")) pageActualites(doc, c);
   if(inclus.includes("d2")) pageNature(doc, c, c.peps, "PEPS", "peps");
@@ -1810,8 +1830,10 @@ function pageEvolutionPdf(doc, ctx, jeu, depart){
 
 /* ---------- Pages de détail ---------- */
 
-const POIDS = { libelle:3.0, porteur:0.9, groupement:0.9, commentaire:3.0,
-                date:0.8, avancement:0.7 };
+/* Poids relatifs des colonnes du détail. Porteur et groupement ont besoin
+   d'assez de place pour un « NOM Prénom » sur une seule ligne. */
+const POIDS = { libelle:2.8, porteur:1.5, groupement:1.3, commentaire:2.6,
+                date:0.9, avancement:0.6 };
 
 /* Colonnes du détail : le libellé et l'avancement sont toujours là,
    le reste suit les cases cochées. */
