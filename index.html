@@ -1,0 +1,1783 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Revue annuelle</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --rouge:#C0504D; --vert:#9BBB59; --jaune:#FFCC00; --orange:#F79646; --gris:#595959;
+    --trait:#d8d5d0; --fond:#ffffff; --encre:#26221f; --attenue:#6f6862;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:13px/1.45 Tahoma,Verdana,sans-serif;color:var(--encre);background:var(--fond)}
+  header{display:flex;align-items:baseline;gap:12px;padding:10px 14px;border-bottom:2px solid var(--rouge)}
+  header h1{margin:0;font-size:15px;font-weight:bold}
+  header span{color:var(--attenue);font-size:12px}
+  nav{display:flex;gap:2px;padding:8px 14px 0;border-bottom:1px solid var(--trait)}
+  nav button{border:1px solid var(--trait);border-bottom:none;background:#f4f2ef;padding:6px 14px;
+    font:inherit;cursor:pointer;color:var(--attenue)}
+  nav button[aria-selected="true"]{background:#fff;color:var(--encre);font-weight:bold;
+    box-shadow:inset 0 2px 0 var(--rouge);margin-bottom:-1px}
+  main{padding:14px}
+  section[hidden]{display:none}
+  fieldset{border:1px solid var(--trait);margin:0 0 14px;padding:10px 12px 12px}
+  legend{font-weight:bold;padding:0 6px}
+  .grille{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px 14px}
+  label{display:block;font-size:12px;color:var(--attenue);margin-bottom:2px}
+  select,input[type=text],input[type=number]{width:100%;padding:4px 6px;border:1px solid var(--trait);
+    font:inherit;background:#fff}
+  select:focus,input:focus,button:focus{outline:2px solid var(--rouge);outline-offset:1px}
+  .cases{display:flex;flex-wrap:wrap;gap:6px 18px}
+  .cases label{display:flex;align-items:center;gap:6px;color:var(--encre);font-size:13px;margin:0}
+  .barre{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid var(--trait)}
+  button.action{background:var(--rouge);color:#fff;border:none;padding:8px 18px;font:inherit;
+    font-weight:bold;cursor:pointer}
+  button.action:disabled{background:#bbb;cursor:default}
+  button.neutre{background:#fff;border:1px solid var(--trait);padding:7px 14px;font:inherit;cursor:pointer}
+  .msg{padding:8px 12px;border-left:3px solid var(--rouge);background:#faf6f6;margin-bottom:12px}
+  .msg.ok{border-color:var(--vert);background:#f6f9f1}
+  table.apercu{border-collapse:collapse;width:100%;margin-top:6px}
+  table.apercu th,table.apercu td{border:1px solid var(--trait);padding:4px 8px;text-align:left;font-size:12px}
+  table.apercu th{background:#f4f2ef}
+  .chiffre{font-size:26px;font-weight:bold}
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  p.aide{color:var(--attenue);font-size:12px;margin:4px 0 10px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Revue annuelle</h1>
+  <span id="etat">Connexion au document…</span>
+</header>
+
+<nav>
+  <button id="ongletConf" aria-selected="true">Configuration</button>
+  <button id="ongletGen" aria-selected="false">Aperçu et export</button>
+</nav>
+
+<main>
+  <div id="alerte" class="msg" hidden></div>
+
+  <!-- ================= CONFIGURATION ================= -->
+  <section id="secConf">
+
+    <fieldset>
+      <legend>Revue à éditer</legend>
+      <div class="grille">
+        <div><label for="typeRevue">Type</label><select id="typeRevue"></select></div>
+      </div>
+      <p class="aide" id="descType"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Tables sources</legend>
+      <div class="grille">
+        <div><label for="tPEPS">Table des projets et actions</label><select id="tPEPS"></select></div>
+        <div><label for="tMEC">Table des recommandations</label><select id="tMEC"></select></div>
+        <div><label for="annee">Année de référence</label><input type="number" id="annee" min="2000" max="2100"></div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Colonnes — projets et actions</legend>
+      <div class="grille" id="mapPEPS"></div>
+      <p class="aide">La nature distingue les lignes projet (PEPS, AV) des actions de mise en œuvre (MEO).</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Colonnes — recommandations</legend>
+      <div class="grille" id="mapMEC"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Familles de recommandations</legend>
+      <p class="aide">Classez chaque valeur trouvée dans la colonne de type, pour le comptage de la diapositive 4.</p>
+      <div id="familles" class="grille"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Millésimes P2A</legend>
+      <p class="aide">Une ligne portant plusieurs millésimes n'apparaît qu'une fois dans la revue.</p>
+      <div id="p2a" class="cases"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Diapositives</legend>
+      <div class="cases" id="diapos"></div>
+      <p class="aide">Modifier une case bascule le type sur « Sélection libre ».</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Historique</legend>
+      <div class="grille">
+        <div><label for="tHisto">Table d'historique</label><select id="tHisto"></select></div>
+        <div><label for="libelleEdition">Nom de l'édition à archiver</label>
+          <input type="text" id="libelleEdition" placeholder="Revue de rentrée 2026"></div>
+        <div style="align-self:end"><button class="neutre" id="btnArchive">Archiver l'édition</button></div>
+      </div>
+      <p class="aide" id="etatHisto">L'archivage enregistre les chiffres du jour dans la table choisie.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Comparaison</legend>
+      <div class="grille">
+        <div><label for="revA">Édition comparée</label><select id="revA"></select></div>
+        <div><label for="revB">Édition de référence</label><select id="revB"></select></div>
+      </div>
+      <div class="cases" style="margin-top:8px">
+        <label><input type="checkbox" id="memeType" checked>
+          N'afficher que les éditions du même type</label>
+      </div>
+      <p class="aide">Les écarts sont calculés dans le sens comparée − référence et reportés sur
+        toutes les diapositives.</p>
+    </fieldset>
+  </section>
+
+  <!-- ================= APERÇU ================= -->
+  <section id="secGen" hidden>
+    <div id="apercu"></div>
+  </section>
+</main>
+
+<div class="barre">
+  <button class="action" id="btnGen">Créer le diaporama</button>
+  <button class="neutre" id="btnRecharge">Recharger les données</button>
+  <span id="info" style="color:var(--attenue);font-size:12px"></span>
+</div>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ */
+/* État                                                                */
+/* ------------------------------------------------------------------ */
+
+const CHAMPS_PEPS = [
+  ["colNature",     "Nature (PEPS / AV / MEO)"],
+  ["colLibelle",    "Libellé"],
+  ["colPorteur",    "Porteur"],
+  ["colGroupement", "Groupement"],
+  ["colPriorite",   "Priorité"],
+  ["colAvancement", "Avancement"],
+  ["colDebut",      "Date de début"],
+  ["colFin",        "Date de fin"],
+  ["colSuspension", "Date de suspension"],
+  ["colAbandon",    "Date d'abandon"],
+  ["colP2A",        "Millésimes P2A"]
+];
+
+const CHAMPS_MEC = [
+  ["mecLibelle",    "Libellé"],
+  ["mecType",       "Type (recommandation / rappel)"],
+  ["mecAvancement", "Avancement"],
+  ["mecStatut",     "Statut"],
+  ["mecPorteur",    "Porteur"]
+];
+
+const TYPES = [
+  { id:"complete",   nom:"Revue annuelle complète", diapos:["d1","d2","d3","d4","d5"],
+    fichier:"Revue_annuelle", sortie:"odp",
+    desc:"Diaporama Impress des cinq diapositives : actualités, PEPS, actions à valoriser, MEC 2023 et P2A." },
+  { id:"actualites", nom:"Actualités",              diapos:["d1"], fichier:"Actualites",
+    sortie:"odp",
+    desc:"Diaporama d'une diapositive d'actualités, à compléter dans Impress." },
+  { id:"peps",       nom:"PEPS",                    diapos:["d2"], fichier:"Revue_PEPS",
+    sortie:"pdf",
+    desc:"PDF A4 : chiffres clés, répartition du portefeuille et projets terminés dans l'année." },
+  { id:"av",         nom:"Actions à valoriser",     diapos:["d3"], fichier:"Revue_AV",
+    sortie:"pdf",
+    desc:"PDF A4, même présentation que la revue PEPS, sur les actions à valoriser." },
+  { id:"projets",    nom:"PEPS et actions à valoriser", diapos:["d2","d3"],
+    fichier:"Revue_projets", sortie:"pdf",
+    desc:"PDF A4 : les deux volets projets sur une page de synthèse, puis leurs projets terminés." },
+  { id:"mec",        nom:"MEC 2023",                diapos:["d4"], fichier:"Revue_MEC",
+    sortie:"pdf",
+    desc:"PDF A4 : recommandations, rappels au droit, répartition par catégorie et reste à faire." },
+  { id:"p2a",        nom:"P2A",                     diapos:["d5"], fichier:"Revue_P2A",
+    sortie:"pdf",
+    desc:"PDF A4 : projets et actions des millésimes retenus, avec répartition par avancement." },
+  { id:"perso",      nom:"Sélection libre",         diapos:null, fichier:"Revue",
+    sortie:"odp",
+    desc:"Diaporama des diapositives que vous cochez vous-même." }
+];
+
+const DIAPOS = [
+  ["d1", "1. Actualités"],
+  ["d2", "2. PEPS"],
+  ["d3", "3. Actions à valoriser"],
+  ["d4", "4. MEC 2023"],
+  ["d5", "5. P2A"]
+];
+
+let cfg = {};
+let tables = [];
+let colsPEPS = [], colsMEC = [];
+let recPEPS = [], recMEC = [];
+let calcul = null;
+let histo = [];          // éditions archivées, de la plus récente à la plus ancienne
+let histoCols = [];      // colonnes réellement présentes dans la table d'historique
+let ecarts = null;       // résultat de la comparaison courante
+
+const $ = id => document.getElementById(id);
+
+/* ------------------------------------------------------------------ */
+/* Utilitaires données                                                 */
+/* ------------------------------------------------------------------ */
+
+function versLignes(t){
+  if(!t || !t.id) return [];
+  const cles = Object.keys(t);
+  return t.id.map((_, i) => {
+    const o = {};
+    cles.forEach(c => o[c] = t[c][i]);
+    return o;
+  });
+}
+
+// Une colonne de type liste de choix arrive sous la forme ["L","a","b"].
+function versListe(v){
+  if(v == null || v === "") return [];
+  if(Array.isArray(v)) return v[0] === "L" ? v.slice(1).map(String) : v.map(String);
+  return String(v).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+}
+
+function versDate(v){
+  if(v == null || v === "") return null;
+  if(typeof v === "number") return new Date(v * 1000);
+  const d = new Date(v);
+  return isNaN(d) ? null : d;
+}
+
+function jjmmaaaa(d){
+  if(!d) return "";
+  const p = n => String(n).padStart(2, "0");
+  return p(d.getUTCDate()) + "/" + p(d.getUTCMonth() + 1) + "/" + d.getUTCFullYear();
+}
+
+// Grist stocke les pourcentages en 0–1 ; on ramène tout sur 0–100.
+function versPourcent(v, echelleFraction){
+  if(v == null || v === "") return 0;
+  const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", ".").replace("%", ""));
+  if(isNaN(n)) return 0;
+  return echelleFraction ? Math.round(n * 100) : Math.round(n);
+}
+
+function detecteFraction(lignes, col){
+  if(!col) return false;
+  let max = 0;
+  for(const l of lignes){
+    const v = l[col];
+    if(typeof v === "number" && v > max) max = v;
+  }
+  return max > 0 && max <= 1;
+}
+
+function estInterrompu(l){
+  if(cfg.mecStatut){
+    const s = String(l[cfg.mecStatut] || "").toLowerCase();
+    if(s.includes("interrompu") || s.includes("abandon") || s.includes("suspend")) return true;
+  }
+  return false;
+}
+
+function txt(v){
+  if(v == null) return "";
+  if(Array.isArray(v)) return versListe(v).join(", ");
+  return String(v);
+}
+
+function formateEcart(d){
+  if(d == null) return "";
+  if(d === 0) return "=";
+  return (d > 0 ? "+" : "") + d;
+}
+
+// sens : "haut" = une hausse est favorable, "bas" = une baisse l'est, "neutre" = sans jugement.
+function couleurEcart(d, sens){
+  if(d == null || d === 0 || sens === "neutre") return "#6F6862";
+  const favorable = sens === "haut" ? d > 0 : d < 0;
+  return favorable ? "#4e6b28" : "#C0504D";
+}
+
+function couleurAvancement(p, interrompu){
+  if(interrompu) return "#595959";
+  if(p >= 100) return "#9BBB59";
+  if(p >= 50)  return "#FFCC00";
+  if(p >= 1)   return "#F79646";
+  return "#C0504D";
+}
+
+/* ------------------------------------------------------------------ */
+/* Chargement                                                          */
+/* ------------------------------------------------------------------ */
+
+function alerte(texte, ok){
+  const el = $("alerte");
+  if(!texte){ el.hidden = true; return; }
+  el.hidden = false;
+  el.className = "msg" + (ok ? " ok" : "");
+  el.textContent = texte;
+}
+
+async function chargeTables(){
+  tables = await grist.docApi.listTables();
+  for(const sel of [$("tPEPS"), $("tMEC"), $("tHisto")]){
+    sel.innerHTML = '<option value="">— aucune —</option>';
+    tables.forEach(t => {
+      const o = document.createElement("option");
+      o.value = o.textContent = t;
+      sel.appendChild(o);
+    });
+  }
+  if(tables.includes(cfg.tPEPS || "Liste_PEPS_AV")) $("tPEPS").value = cfg.tPEPS || "Liste_PEPS_AV";
+  if(tables.includes(cfg.tMEC  || "MEC_2023"))      $("tMEC").value  = cfg.tMEC  || "MEC_2023";
+  const th = cfg.tHisto || "Revue_Annuelle_Historique";
+  if(tables.includes(th)) $("tHisto").value = th;
+}
+
+async function chargeDonnees(){
+  $("etat").textContent = "Lecture des tables…";
+  cfg.tPEPS = $("tPEPS").value;
+  cfg.tMEC  = $("tMEC").value;
+  const soucis = [];
+
+  recPEPS = []; colsPEPS = [];
+  if(cfg.tPEPS){
+    try{
+      const tp = await grist.docApi.fetchTable(cfg.tPEPS);
+      recPEPS = versLignes(tp);
+      colsPEPS = Object.keys(tp).filter(c => c !== "id" && !c.startsWith("gristHelper_"));
+    }catch(e){ soucis.push("projets (" + cfg.tPEPS + ") : " + e.message); }
+  }
+
+  recMEC = []; colsMEC = [];
+  if(cfg.tMEC){
+    try{
+      const tm = await grist.docApi.fetchTable(cfg.tMEC);
+      recMEC = versLignes(tm);
+      colsMEC = Object.keys(tm).filter(c => c !== "id" && !c.startsWith("gristHelper_"));
+    }catch(e){ soucis.push("recommandations (" + cfg.tMEC + ") : " + e.message); }
+  }
+
+  construitMappings();
+  construitP2A();
+  construitFamilles();
+  alerte(soucis.length ? "Table illisible — " + soucis.join(" · ") : "", false);
+  $("etat").textContent = recPEPS.length + " lignes projets · " + recMEC.length + " recommandations";
+}
+
+function selectColonne(id, libelle, colonnes, valeur){
+  const div = document.createElement("div");
+  const lab = document.createElement("label");
+  lab.textContent = libelle;
+  lab.setAttribute("for", id);
+  const sel = document.createElement("select");
+  sel.id = id;
+  sel.innerHTML = '<option value="">— aucune —</option>';
+  colonnes.forEach(c => {
+    const o = document.createElement("option");
+    o.value = o.textContent = c;
+    sel.appendChild(o);
+  });
+  if(valeur && colonnes.includes(valeur)) sel.value = valeur;
+  sel.addEventListener("change", () => { cfg[id] = sel.value; sauve(); recalcule(); });
+  div.append(lab, sel);
+  return div;
+}
+
+// Rapproche un nom de colonne attendu de ce qui existe réellement dans la table.
+function devine(colonnes, motifs){
+  for(const m of motifs){
+    const exact = colonnes.find(c => c.toLowerCase() === m);
+    if(exact) return exact;
+  }
+  for(const m of motifs){
+    const partiel = colonnes.find(c => c.toLowerCase().includes(m));
+    if(partiel) return partiel;
+  }
+  return "";
+}
+
+const INDICES = {
+  colNature:["nature"], colLibelle:["libelle","libellé","intitule","titre","nom"],
+  colPorteur:["porteur","pilote"], colGroupement:["groupement"], colPriorite:["priorite","priorité"],
+  colAvancement:["avancement"], colDebut:["date_debut","date_début","debut"],
+  colFin:["date_fin","fin"], colSuspension:["date_suspension","suspension"],
+  colAbandon:["date_abandon","abandon"], colP2A:["p2a"],
+  mecLibelle:["libelle","libellé","recommandation","intitule"],
+  mecType:["reccomandation_rappel","recommandation_rappel","type"],
+  mecAvancement:["avancement"], mecStatut:["statut"], mecPorteur:["porteur","pilote"]
+};
+
+function construitMappings(){
+  const zp = $("mapPEPS"); zp.innerHTML = "";
+  CHAMPS_PEPS.forEach(([id, lib]) => {
+    if(!cfg[id]) cfg[id] = devine(colsPEPS, INDICES[id]);
+    zp.appendChild(selectColonne(id, lib, colsPEPS, cfg[id]));
+  });
+  const zm = $("mapMEC"); zm.innerHTML = "";
+  CHAMPS_MEC.forEach(([id, lib]) => {
+    if(!cfg[id]) cfg[id] = devine(colsMEC, INDICES[id]);
+    zm.appendChild(selectColonne(id, lib, colsMEC, cfg[id]));
+  });
+}
+
+function construitP2A(){
+  const zone = $("p2a"); zone.innerHTML = "";
+  if(!cfg.colP2A){ zone.textContent = "Choisissez d'abord la colonne des millésimes."; return; }
+  const trouves = new Set();
+  recPEPS.forEach(l => versListe(l[cfg.colP2A]).forEach(v => trouves.add(v)));
+  const liste = [...trouves].sort();
+  if(!liste.length){ zone.textContent = "Aucun millésime trouvé dans cette colonne."; return; }
+  cfg.p2aChoisis = cfg.p2aChoisis || [];
+  liste.forEach(v => {
+    const lab = document.createElement("label");
+    const c = document.createElement("input");
+    c.type = "checkbox"; c.value = v;
+    c.checked = cfg.p2aChoisis.includes(v);
+    c.addEventListener("change", () => {
+      cfg.p2aChoisis = [...zone.querySelectorAll("input:checked")].map(i => i.value);
+      sauve(); recalcule();
+    });
+    lab.append(c, document.createTextNode(v));
+    zone.appendChild(lab);
+  });
+}
+
+function construitFamilles(){
+  const zone = $("familles"); zone.innerHTML = "";
+  if(!cfg.mecType){ zone.textContent = "Choisissez d'abord la colonne de type."; return; }
+  const valeurs = [...new Set(recMEC.map(l => txt(l[cfg.mecType])).filter(Boolean))].sort();
+  cfg.familles = cfg.familles || {};
+  valeurs.forEach(v => {
+    if(!cfg.familles[v]){
+      const b = v.toLowerCase();
+      cfg.familles[v] = (b.includes("rappel") || b.includes("droit")) ? "rappel" : "reco";
+    }
+    const div = document.createElement("div");
+    const lab = document.createElement("label");
+    lab.textContent = v;
+    const sel = document.createElement("select");
+    sel.innerHTML = '<option value="reco">Recommandation</option>' +
+                    '<option value="rappel">Rappel au droit</option>' +
+                    '<option value="hors">Hors comptage</option>';
+    sel.value = cfg.familles[v];
+    sel.addEventListener("change", () => { cfg.familles[v] = sel.value; sauve(); recalcule(); });
+    div.append(lab, sel);
+    zone.appendChild(div);
+  });
+}
+
+function typeCourant(){
+  return TYPES.find(t => t.id === (cfg.typeRevue || "complete")) || TYPES[0];
+}
+
+function majDescType(){
+  const t = typeCourant();
+  $("descType").textContent = t.desc;
+  $("btnGen").textContent = t.sortie === "pdf" ? "Créer le PDF" : "Créer le diaporama";
+  $("diapos").closest("fieldset").hidden = t.sortie === "pdf";
+}
+
+function construitTypes(){
+  const sel = $("typeRevue");
+  sel.innerHTML = TYPES.map(t =>
+    '<option value="' + t.id + '">' + esc(t.nom) + "</option>").join("");
+  sel.value = cfg.typeRevue || "complete";
+  sel.addEventListener("change", () => {
+    cfg.typeRevue = sel.value;
+    appliqueType();
+    sauve();
+    construitComparaison();
+    recalcule();
+  });
+  majDescType();
+}
+
+/* Recoche les diapositives du type choisi ; « Sélection libre » laisse la main. */
+function appliqueType(){
+  const t = typeCourant();
+  if(t.diapos) cfg.diapos = [...t.diapos];
+  majDescType();
+  const zone = $("diapos");
+  zone.querySelectorAll("input").forEach(i => i.checked = cfg.diapos.includes(i.value));
+}
+
+function construitDiapos(){
+  const zone = $("diapos"); zone.innerHTML = "";
+  cfg.diapos = cfg.diapos || DIAPOS.map(d => d[0]);
+  DIAPOS.forEach(([id, lib]) => {
+    const lab = document.createElement("label");
+    const c = document.createElement("input");
+    c.type = "checkbox"; c.value = id;
+    c.checked = cfg.diapos.includes(id);
+    c.addEventListener("change", () => {
+      cfg.diapos = [...zone.querySelectorAll("input:checked")].map(i => i.value);
+      cfg.typeRevue = "perso";
+      $("typeRevue").value = "perso";
+      majDescType();
+      sauve(); construitComparaison(); recalcule();
+    });
+    lab.append(c, document.createTextNode(lib));
+    zone.appendChild(lab);
+  });
+}
+
+function sauve(){
+  cfg.annee = parseInt($("annee").value, 10) || new Date().getFullYear();
+  grist.widgetApi.setOptions(cfg).catch(() => {});
+}
+
+/* ------------------------------------------------------------------ */
+/* Calculs                                                             */
+/* ------------------------------------------------------------------ */
+
+function bilanNature(nature, jan1, finAnnee, fraction){
+  const lignes = recPEPS.filter(l => String(l[cfg.colNature] || "").toUpperCase() === nature);
+
+  // Stock au 1er janvier : la ligne est comptée sauf si elle était déjà close à cette date.
+  const stock = lignes.filter(l => {
+    const cloture = [cfg.colFin, cfg.colSuspension, cfg.colAbandon]
+      .map(c => c ? versDate(l[c]) : null)
+      .filter(Boolean);
+    return !cloture.some(d => d < jan1);
+  });
+
+  const termines = lignes.filter(l => {
+    const f = cfg.colFin ? versDate(l[cfg.colFin]) : null;
+    return f && f >= jan1 && f <= finAnnee;
+  }).sort((a, b) => versDate(a[cfg.colFin]) - versDate(b[cfg.colFin]));
+
+  return {
+    nature,
+    stock: stock.length,
+    stockLignes: stock,
+    termines: termines.map(l => ({
+      libelle: txt(l[cfg.colLibelle]),
+      porteur: txt(l[cfg.colPorteur]),
+      groupement: txt(l[cfg.colGroupement]),
+      date: jjmmaaaa(versDate(l[cfg.colFin])),
+      avancement: versPourcent(l[cfg.colAvancement], fraction)
+    }))
+  };
+}
+
+function bilanMEC(fraction){
+  const parValeur = {}, familles = { reco:{total:0, reste:0}, rappel:{total:0, reste:0} };
+  let resteListe = [];
+
+  recMEC.forEach(l => {
+    const v = txt(l[cfg.mecType]) || "(non renseigné)";
+    const fam = (cfg.familles && cfg.familles[v]) || "hors";
+    if(fam === "hors") return;
+    const p = versPourcent(l[cfg.mecAvancement], fraction);
+    const inter = estInterrompu(l);
+    const reste = p < 100 && !inter;   // reste à faire : ni terminé, ni interrompu
+
+    parValeur[v] = parValeur[v] || { total:0, reste:0, famille:fam };
+    parValeur[v].total++;
+    familles[fam].total++;
+    if(reste){
+      parValeur[v].reste++;
+      familles[fam].reste++;
+      resteListe.push({
+        libelle: txt(l[cfg.mecLibelle]),
+        type: v,
+        porteur: txt(l[cfg.mecPorteur]),
+        avancement: p
+      });
+    }
+  });
+
+  resteListe.sort((a, b) => a.avancement - b.avancement);
+  return { parValeur, familles, resteListe };
+}
+
+function bilanP2A(fraction){
+  const choisis = cfg.p2aChoisis || [];
+  if(!cfg.colP2A || !choisis.length) return { lignes: [], parMillesime: {} };
+  const parMillesime = {};
+  choisis.forEach(m => parMillesime[m] = 0);
+
+  const lignes = [];
+  recPEPS.forEach(l => {
+    const mil = versListe(l[cfg.colP2A]);
+    const communs = mil.filter(m => choisis.includes(m));
+    if(!communs.length) return;                       // dédoublonnage : une ligne = une entrée
+    communs.forEach(m => parMillesime[m]++);
+    lignes.push({
+      millesimes: communs.join(" · "),
+      nature: txt(l[cfg.colNature]),
+      libelle: txt(l[cfg.colLibelle]),
+      porteur: txt(l[cfg.colPorteur]),
+      avancement: versPourcent(l[cfg.colAvancement], fraction),
+      interrompu: [cfg.colSuspension, cfg.colAbandon].some(c => c && versDate(l[c]))
+    });
+  });
+  lignes.sort((a, b) => a.nature.localeCompare(b.nature) || a.libelle.localeCompare(b.libelle));
+  return { lignes, parMillesime };
+}
+
+function recalcule(){
+  if(!recPEPS.length && !recMEC.length) return;
+  const annee = parseInt($("annee").value, 10) || new Date().getFullYear();
+  const jan1 = new Date(Date.UTC(annee, 0, 1));
+  const finAnnee = new Date(Date.UTC(annee, 11, 31));
+  const fracP = detecteFraction(recPEPS, cfg.colAvancement);
+  const fracM = detecteFraction(recMEC, cfg.mecAvancement);
+
+  calcul = {
+    annee,
+    peps: bilanNature("PEPS", jan1, finAnnee, fracP),
+    av:   bilanNature("AV",   jan1, finAnnee, fracP),
+    mec:  bilanMEC(fracM),
+    p2a:  bilanP2A(fracP)
+  };
+  calculeEcarts();
+  dessineApercu();
+}
+
+/* ------------------------------------------------------------------ */
+/* Historique et comparaison                                           */
+/* ------------------------------------------------------------------ */
+
+/* Les chiffres d'une édition, condensés pour être stockés en JSON. */
+function instantane(c){
+  const parValeur = {};
+  Object.entries(c.mec.parValeur).forEach(([v, d]) =>
+    parValeur[v] = { total:d.total, reste:d.reste, famille:d.famille });
+  return {
+    annee: c.annee,
+    peps: { stock:c.peps.stock, termines:c.peps.termines.length },
+    av:   { stock:c.av.stock,   termines:c.av.termines.length },
+    mec:  { reco:c.mec.familles.reco, rappel:c.mec.familles.rappel, parValeur },
+    p2a:  { millesimes:[...(cfg.p2aChoisis || [])].sort(),
+            total:c.p2a.lignes.length, parMillesime:c.p2a.parMillesime }
+  };
+}
+
+async function chargeHistorique(){
+  histo = [];
+  cfg.tHisto = $("tHisto").value;
+  if(!cfg.tHisto){ $("etatHisto").textContent = "Aucune table d'historique sélectionnée."; }
+  else{
+    try{
+      const t = await grist.docApi.fetchTable(cfg.tHisto);
+      histoCols = Object.keys(t);
+      histo = versLignes(t).map(l => {
+        let donnees = null;
+        try{ donnees = JSON.parse(l.Indicateurs || "null"); }catch(e){ donnees = null; }
+        return {
+          id: l.id,
+          date: versDate(l.Date_Edition),
+          libelle: txt(l.Libelle) || "(sans nom)",
+          annee: l.Annee,
+          type: txt(l.Type_Revue) || (donnees && donnees.type) || "",
+          perimetre: txt(l.Perimetre),
+          donnees
+        };
+      }).filter(r => r.donnees)
+        .sort((a, b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0));
+      $("etatHisto").textContent = histo.length + " édition(s) archivée(s).";
+    }catch(e){
+      $("etatHisto").textContent = "Table d'historique illisible : " + e.message;
+    }
+  }
+  construitComparaison();
+}
+
+function construitComparaison(){
+  const a = $("revA"), b = $("revB");
+  const filtre = $("memeType").checked ? histo.filter(r =>
+    !r.type || r.type === (cfg.typeRevue || "complete")) : histo;
+  const options = filtre.map(r =>
+    '<option value="' + r.id + '">' +
+    esc((r.date ? jjmmaaaa(r.date) + " — " : "") + r.libelle +
+        (r.type && r.type !== (cfg.typeRevue || "complete") ? " [" + r.type + "]" : "")) +
+    "</option>").join("");
+  a.innerHTML = '<option value="actuel">Situation actuelle</option>' + options;
+  b.innerHTML = '<option value="">— aucune comparaison —</option>' + options;
+  if(cfg.revA && [...a.options].some(o => o.value === String(cfg.revA))) a.value = cfg.revA;
+  if(cfg.revB && [...b.options].some(o => o.value === String(cfg.revB))) b.value = cfg.revB;
+}
+
+function editionChoisie(valeur){
+  if(valeur === "actuel"){
+    if(!calcul) return null;
+    return { libelle:"Situation actuelle", donnees:instantane(calcul) };
+  }
+  const r = histo.find(h => String(h.id) === String(valeur));
+  return r ? { libelle:(r.date ? jjmmaaaa(r.date) + " — " : "") + r.libelle, donnees:r.donnees } : null;
+}
+
+function delta(x, y){
+  if(typeof x !== "number" || typeof y !== "number") return null;
+  return x - y;
+}
+
+function calculeEcarts(){
+  ecarts = null;
+  const va = $("revA").value, vb = $("revB").value;
+  if(!vb) return;
+  const A = editionChoisie(va), B = editionChoisie(vb);
+  if(!A || !B) return;
+  const a = A.donnees, b = B.donnees;
+
+  // P2A : l'écart n'a de sens que si les millésimes retenus sont identiques.
+  const ma = (a.p2a.millesimes || []).join("|"), mb = (b.p2a.millesimes || []).join("|");
+  const memePerimetre = ma === mb && ma !== "";
+  const communs = (a.p2a.millesimes || []).filter(m => (b.p2a.millesimes || []).includes(m));
+  const parMillesime = {};
+  communs.forEach(m => parMillesime[m] = delta(a.p2a.parMillesime[m], b.p2a.parMillesime[m]));
+
+  ecarts = {
+    libelleA: A.libelle, libelleB: B.libelle,
+    anneesDifferentes: a.annee !== b.annee,
+    peps: { stock:delta(a.peps.stock, b.peps.stock),
+            termines:delta(a.peps.termines, b.peps.termines) },
+    av:   { stock:delta(a.av.stock, b.av.stock),
+            termines:delta(a.av.termines, b.av.termines) },
+    mec:  { recoTotal:delta(a.mec.reco.total, b.mec.reco.total),
+            recoReste:delta(a.mec.reco.reste, b.mec.reco.reste),
+            rappelTotal:delta(a.mec.rappel.total, b.mec.rappel.total),
+            rappelReste:delta(a.mec.rappel.reste, b.mec.rappel.reste),
+            parValeur:(() => {
+              const o = {};
+              Object.keys(a.mec.parValeur).forEach(v => {
+                const ref = b.mec.parValeur[v];
+                o[v] = ref ? { total:delta(a.mec.parValeur[v].total, ref.total),
+                               reste:delta(a.mec.parValeur[v].reste, ref.reste) }
+                           : { total:null, reste:null };
+              });
+              return o;
+            })() },
+    p2a:  { comparable:memePerimetre,
+            total:memePerimetre ? delta(a.p2a.total, b.p2a.total) : null,
+            parMillesime,
+            message:memePerimetre ? null
+              : (communs.length
+                  ? "Périmètres différents — écarts limités aux millésimes communs"
+                  : "Périmètres non comparables") }
+  };
+}
+
+async function archiveEdition(){
+  if(!cfg.tHisto){ alerte("Choisissez d'abord la table d'historique."); return; }
+  if(!calcul){ alerte("Chargez d'abord les données."); return; }
+  const libelle = $("libelleEdition").value.trim();
+  if(!libelle){ alerte("Donnez un nom à l'édition avant de l'archiver."); return; }
+  const t = typeCourant();
+  const perimetre = t.nom + " · P2A : " + ((cfg.p2aChoisis || []).join(", ") || "aucun") +
+                    " · Diapos : " + (cfg.diapos || []).join(", ");
+  const enreg = {
+    Date_Edition: Math.floor(Date.now() / 1000),
+    Libelle: libelle,
+    Annee: calcul.annee,
+    Perimetre: perimetre,
+    Indicateurs: JSON.stringify(Object.assign({ type:t.id }, instantane(calcul)))
+  };
+  // La colonne de type est facultative : on ne l'écrit que si elle existe déjà.
+  if(histoCols.includes("Type_Revue")) enreg.Type_Revue = t.id;
+  try{
+    await grist.docApi.applyUserActions([["AddRecord", cfg.tHisto, null, enreg]]);
+    $("libelleEdition").value = "";
+    await chargeHistorique();
+    recalcule();
+    alerte("Édition archivée : " + libelle, true);
+  }catch(e){
+    alerte("Archivage impossible : " + e.message +
+           " — vérifiez que la table contient les colonnes Date_Edition, Libelle, Annee, " +
+           "Perimetre et Indicateurs.");
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Aperçu écran                                                        */
+/* ------------------------------------------------------------------ */
+
+function tableauHTML(entetes, lignes){
+  if(!lignes.length) return '<p class="aide">Aucune ligne.</p>';
+  const th = entetes.map(e => "<th>" + e + "</th>").join("");
+  const tr = lignes.map(l => "<tr>" + l.map(c => "<td>" + c + "</td>").join("") + "</tr>").join("");
+  return '<table class="apercu"><thead><tr>' + th + "</tr></thead><tbody>" + tr + "</tbody></table>";
+}
+
+function dessineApercu(){
+  if(!calcul) return;
+  const c = calcul;
+  const ec = (d, sens) => d == null ? "" :
+    ' <span style="color:' + couleurEcart(d, sens) + ';font-size:15px">' +
+    formateEcart(d) + "</span>";
+  let h = "";
+
+  if(ecarts){
+    h += '<div class="msg ok">Comparaison : <b>' + esc(ecarts.libelleA) + "</b> par rapport à <b>" +
+         esc(ecarts.libelleB) + "</b>." +
+         (ecarts.anneesDifferentes ? " Les deux éditions ne portent pas sur la même année." : "") +
+         "</div>";
+  }
+
+  h += '<div class="duo">';
+  [["PEPS", c.peps, "peps"], ["Actions à valoriser", c.av, "av"]].forEach(([titre, b, cle]) => {
+    const e = ecarts ? ecarts[cle] : null;
+    h += "<fieldset><legend>" + titre + "</legend>";
+    h += '<div class="chiffre">' + b.stock + (e ? ec(e.stock, "neutre") : "") + "</div>";
+    h += '<p class="aide">en cours au 01/01/' + c.annee + " — " + b.termines.length +
+         (e ? " (" + formateEcart(e.termines) + ")" : "") + " terminé(s) dans l'année</p>";
+    h += tableauHTML(["Libellé", "Porteur", "Fin"],
+          b.termines.slice(0, 8).map(t => [t.libelle, t.porteur, t.date]));
+    if(b.termines.length > 8) h += '<p class="aide">…et ' + (b.termines.length - 8) + " autre(s).</p>";
+    h += "</fieldset>";
+  });
+  h += "</div>";
+
+  const m = c.mec;
+  h += "<fieldset><legend>MEC 2023</legend>";
+  const em = ecarts ? ecarts.mec : null;
+  h += '<div class="duo"><div><div class="chiffre">' + m.familles.reco.total +
+       (em ? ec(em.recoTotal, "neutre") : "") + "</div>" +
+       '<p class="aide">recommandations, dont ' + m.familles.reco.reste +
+       (em ? ec(em.recoReste, "bas") : "") + " à faire</p></div>" +
+       '<div><div class="chiffre">' + m.familles.rappel.total +
+       (em ? ec(em.rappelTotal, "neutre") : "") + "</div>" +
+       '<p class="aide">rappels au droit, dont ' + m.familles.rappel.reste +
+       (em ? ec(em.rappelReste, "bas") : "") + " à faire</p></div></div>";
+  h += tableauHTML(["Valeur", "Famille", "Total", "Reste à faire"],
+        Object.entries(m.parValeur).map(([v, d]) =>
+          [v, d.famille === "reco" ? "Recommandation" : "Rappel au droit", d.total, d.reste]));
+  h += "</fieldset>";
+
+  h += "<fieldset><legend>P2A</legend>";
+  const p = c.p2a;
+  if(!p.lignes.length){
+    h += '<p class="aide">Aucun millésime sélectionné, ou aucune ligne concernée.</p>';
+  }else{
+    const ep = ecarts ? ecarts.p2a : null;
+    h += '<div class="chiffre">' + p.lignes.length +
+         (ep && ep.comparable ? ec(ep.total, "neutre") : "") + "</div>";
+    h += '<p class="aide">ligne(s) distincte(s) — ' +
+         Object.entries(p.parMillesime).map(([k, v]) =>
+           k + " : " + v + (ep && ep.parMillesime[k] != null
+             ? " (" + formateEcart(ep.parMillesime[k]) + ")" : "")).join(" · ") + "</p>";
+    if(ep && ep.message) h += '<p class="aide" style="color:#C0504D">' + ep.message + "</p>";
+    h += tableauHTML(["Millésimes", "Nature", "Libellé", "Avancement"],
+          p.lignes.slice(0, 12).map(l => [l.millesimes, l.nature, l.libelle, l.avancement + " %"]));
+    if(p.lignes.length > 12) h += '<p class="aide">…et ' + (p.lignes.length - 12) + " autre(s).</p>";
+  }
+  h += "</fieldset>";
+
+  $("apercu").innerHTML = h;
+}
+
+/* ================================================================== */
+/* Génération du diaporama .odp                                        */
+/* ================================================================== */
+
+const L = 28, H = 21;                    // format du modèle SDIS, en centimètres
+const MARGE = 1.4;
+const LARG = L - 2 * MARGE;
+
+function esc(s){
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+/* Un élément : {type:'texte'|'bloc'|'image', x,y,w,h, ...}. */
+function creeDoc(){
+  return { pages: [], images: [], styles: [], nStyle: 0 };
+}
+
+function styleGraphique(doc, o){
+  const n = "gr" + (++doc.nStyle);
+  const fond = o.fond ? 'draw:fill="solid" draw:fill-color="' + o.fond + '"' : 'draw:fill="none"';
+  const trait = o.trait
+    ? 'draw:stroke="solid" svg:stroke-width="0.03cm" svg:stroke-color="' + o.trait + '"'
+    : 'draw:stroke="none"';
+  doc.styles.push(
+    '<style:style style:name="' + n + '" style:family="graphic">' +
+    '<style:graphic-properties ' + fond + " " + trait + ' ' +
+    'fo:padding-top="0.08cm" fo:padding-bottom="0.08cm" fo:padding-left="0.14cm" fo:padding-right="0.14cm" ' +
+    'draw:auto-grow-height="false" draw:auto-grow-width="false" fo:wrap-option="wrap" ' +
+    'draw:textarea-vertical-align="' + (o.vertical || "middle") + '"/></style:style>');
+  return n;
+}
+
+function styleTexte(doc, o){
+  const n = "P" + (++doc.nStyle);
+  doc.styles.push(
+    '<style:style style:name="' + n + '" style:family="paragraph">' +
+    '<style:paragraph-properties fo:text-align="' + (o.align || "start") + '"/>' +
+    '<style:text-properties style:font-name="Tahoma" fo:font-size="' + (o.taille || 12) + 'pt" ' +
+    'fo:color="' + (o.couleur || "#26221F") + '" fo:font-weight="' + (o.gras ? "bold" : "normal") + '"/>' +
+    "</style:style>");
+  return n;
+}
+
+function bloc(doc, page, o){
+  const gs = styleGraphique(doc, o);
+  const ps = styleTexte(doc, o);
+  const paras = String(o.texte == null ? "" : o.texte).split("\n")
+    .map(t => '<text:p text:style-name="' + ps + '">' + esc(t) + "</text:p>").join("");
+  page.push(
+    '<draw:frame draw:style-name="' + gs + '" draw:layer="layout" ' +
+    'svg:width="' + o.w + 'cm" svg:height="' + o.h + 'cm" ' +
+    'svg:x="' + o.x + 'cm" svg:y="' + o.y + 'cm">' +
+    "<draw:text-box>" + paras + "</draw:text-box></draw:frame>");
+}
+
+function image(doc, page, o){
+  const nom = "Pictures/img" + (doc.images.length + 1) + ".png";
+  doc.images.push({ nom, base64: o.base64 });
+  const gs = styleGraphique(doc, {});
+  page.push(
+    '<draw:frame draw:style-name="' + gs + '" draw:layer="layout" ' +
+    'svg:width="' + o.w + 'cm" svg:height="' + o.h + 'cm" ' +
+    'svg:x="' + o.x + 'cm" svg:y="' + o.y + 'cm">' +
+    '<draw:image xlink:href="' + nom + '" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>' +
+    "</draw:frame>");
+}
+
+function nouvellePage(doc, titre, surtitre){
+  const page = [];
+  doc.pages.push(page);
+  bloc(doc, page, { x:0, y:0, w:L, h:2.1, fond:"#C0504D", texte:"", trait:null });
+  bloc(doc, page, { x:MARGE, y:0.25, w:LARG, h:1.6, texte:titre,
+                    taille:22, gras:true, couleur:"#FFFFFF", vertical:"middle" });
+  if(surtitre){
+    bloc(doc, page, { x:MARGE, y:2.3, w:LARG, h:0.7, texte:surtitre, taille:11, couleur:"#6F6862" });
+  }
+  return page;
+}
+
+function sousTitreComparaison(){
+  if(!ecarts) return null;
+  return "Comparaison : " + ecarts.libelleA + " / référence : " + ecarts.libelleB;
+}
+
+/* Pastille d'écart posée sur le coin d'un indicateur. */
+function ecartBadge(doc, page, x, y, d, sens){
+  if(d == null) return;
+  bloc(doc, page, { x, y:y - 0.35, w:1.6, h:0.85, fond:"#FFFFFF", trait:couleurEcart(d, sens),
+                    texte:formateEcart(d), taille:13, gras:true,
+                    couleur:couleurEcart(d, sens), align:"center" });
+}
+
+function piedDePage(doc){
+  doc.pages.forEach((page, i) => {
+    bloc(doc, page, { x:L - MARGE - 3, y:H - 1.1, w:3, h:0.6,
+                      texte:String(i + 1), taille:10, couleur:"#8a827c", align:"end" });
+  });
+}
+
+/* --- tableau dessiné en formes, pour un rendu et des couleurs maîtrisés --- */
+function tableau(doc, page, o){
+  const { x, y, largeurs, entetes, lignes } = o;
+  const hLigne = o.hLigne || 0.72;
+  let cx = x;
+  entetes.forEach((e, i) => {
+    bloc(doc, page, { x:cx, y, w:largeurs[i], h:hLigne, texte:e, taille:10, gras:true,
+                      couleur:"#FFFFFF", fond:"#7f6f6c" });
+    cx += largeurs[i];
+  });
+  lignes.forEach((ligne, r) => {
+    let lx = x;
+    const yy = y + hLigne * (r + 1);
+    ligne.forEach((cell, i) => {
+      const valeur = (cell && typeof cell === "object") ? cell.texte : cell;
+      const fond = (cell && typeof cell === "object" && cell.fond)
+        ? cell.fond : (r % 2 ? "#f4f2ef" : "#ffffff");
+      const couleur = (cell && typeof cell === "object" && cell.couleur) ? cell.couleur : "#26221F";
+      bloc(doc, page, { x:lx, y:yy, w:largeurs[i], h:hLigne, texte:valeur, taille:10,
+                        fond, couleur, trait:"#d8d5d0",
+                        gras: !!(cell && typeof cell === "object" && cell.gras) });
+      lx += largeurs[i];
+    });
+  });
+  return y + hLigne * (lignes.length + 1);
+}
+
+/* --- camembert rendu en PNG --- */
+function camembert(parts, titre){
+  const cv = document.createElement("canvas");
+  cv.width = 900; cv.height = 560;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#ffffff"; g.fillRect(0, 0, cv.width, cv.height);
+  const total = parts.reduce((s, p) => s + p.valeur, 0);
+  if(!total) return cv.toDataURL("image/png").split(",")[1];
+
+  const cx = 270, cy = 290, r = 190;
+  let a = -Math.PI / 2;
+  parts.forEach(p => {
+    const ang = (p.valeur / total) * Math.PI * 2;
+    g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, r, a, a + ang); g.closePath();
+    g.fillStyle = p.couleur; g.fill();
+    g.strokeStyle = "#ffffff"; g.lineWidth = 3; g.stroke();
+    a += ang;
+  });
+
+  g.fillStyle = "#26221f"; g.font = "bold 30px Tahoma, sans-serif";
+  if(titre) g.fillText(titre, 40, 56);
+  g.font = "24px Tahoma, sans-serif";
+  parts.forEach((p, i) => {
+    const y = 150 + i * 46;
+    g.fillStyle = p.couleur; g.fillRect(560, y - 22, 28, 28);
+    g.fillStyle = "#26221f";
+    const pct = Math.round((p.valeur / total) * 100);
+    g.fillText(p.nom + " — " + p.valeur + " (" + pct + " %)", 600, y);
+  });
+  return cv.toDataURL("image/png").split(",")[1];
+}
+
+/* --- construction des diapositives --- */
+
+function pageActualites(doc, c){
+  const page = nouvellePage(doc, "Actualités " + c.annee, sousTitreComparaison());
+  bloc(doc, page, { x:MARGE, y:3.4, w:LARG, h:H - 5.2, texte:"",
+                    fond:"#faf9f7", trait:"#d8d5d0", vertical:"top" });
+  bloc(doc, page, { x:MARGE + 0.3, y:3.7, w:LARG - 0.6, h:1,
+                    texte:"Saisissez ici les actualités du service.", taille:12, couleur:"#a09892" });
+}
+
+function pageNature(doc, c, b, titre, cle){
+  const e = ecarts ? ecarts[cle] : null;
+  const page = nouvellePage(doc, titre, sousTitreComparaison());
+
+  bloc(doc, page, { x:MARGE, y:3.2, w:7.6, h:3.4, fond:"#C0504D", texte:"", trait:null });
+  bloc(doc, page, { x:MARGE, y:3.4, w:7.6, h:1.9, texte:String(b.stock),
+                    taille:52, gras:true, couleur:"#FFFFFF", align:"center" });
+  bloc(doc, page, { x:MARGE, y:5.3, w:7.6, h:1.1, taille:11, couleur:"#FFFFFF", align:"center",
+                    texte:"en cours au 01/01/" + c.annee });
+  if(e) ecartBadge(doc, page, MARGE + 6.0, 3.2, e.stock, "neutre");
+
+  bloc(doc, page, { x:MARGE + 8.2, y:3.2, w:7.6, h:3.4, fond:"#9BBB59", texte:"", trait:null });
+  bloc(doc, page, { x:MARGE + 8.2, y:3.4, w:7.6, h:1.9, texte:String(b.termines.length),
+                    taille:52, gras:true, couleur:"#FFFFFF", align:"center" });
+  bloc(doc, page, { x:MARGE + 8.2, y:5.3, w:7.6, h:1.1, taille:11, couleur:"#FFFFFF", align:"center",
+                    texte:"terminés en " + c.annee });
+  if(e) ecartBadge(doc, page, MARGE + 14.2, 3.2, e.termines, "haut");
+
+  bloc(doc, page, { x:MARGE, y:7.2, w:LARG, h:0.8, texte:"Terminés dans l'année",
+                    taille:14, gras:true, couleur:"#C0504D", vertical:"bottom" });
+
+  const largeurs = [12.4, 5.4, 4.4, 3.0];
+  const entetes = ["Libellé", "Porteur", "Groupement", "Fin"];
+  const parPage = 13;
+  const total = b.termines.length;
+
+  if(!total){
+    bloc(doc, page, { x:MARGE, y:8.2, w:LARG, h:1, taille:11, couleur:"#6F6862",
+                      texte:"Aucun projet terminé sur la période." });
+    return;
+  }
+  for(let d = 0; d < total; d += parPage){
+    const cible = d === 0 ? page : nouvellePage(doc, titre + " (suite)", null);
+    tableau(doc, cible, {
+      x:MARGE, y: d === 0 ? 8.2 : 3.4, largeurs, entetes,
+      lignes: b.termines.slice(d, d + parPage).map(t =>
+        [t.libelle, t.porteur, t.groupement, t.date])
+    });
+  }
+}
+
+function pageMEC(doc, c){
+  const m = c.mec;
+  const em = ecarts ? ecarts.mec : null;
+  const soustitre = "Recommandations et rappels au droit — situation au " + jjmmaaaa(new Date()) +
+                    (ecarts ? " · " + sousTitreComparaison() : "");
+  const page = nouvellePage(doc, "MEC 2023", soustitre);
+
+  const cartes = [
+    { t:"Recommandations", d:m.familles.reco,   f:"#C0504D", e:em ? em.recoReste : null },
+    { t:"Rappels au droit", d:m.familles.rappel, f:"#7f6f6c", e:em ? em.rappelReste : null }
+  ];
+  cartes.forEach((k, i) => {
+    const x = MARGE + i * 7.4;
+    bloc(doc, page, { x, y:3.6, w:6.9, h:2.9, fond:k.f, texte:"", trait:null });
+    bloc(doc, page, { x, y:3.7, w:6.9, h:1.7, texte:String(k.d.total),
+                      taille:44, gras:true, couleur:"#FFFFFF", align:"center" });
+    bloc(doc, page, { x, y:5.4, w:6.9, h:1.0, taille:11, couleur:"#FFFFFF", align:"center",
+                      texte:k.t + " — " + k.d.reste + " à faire" });
+    ecartBadge(doc, page, x + 5.4, 3.6, k.e, "bas");
+  });
+
+  const detail = Object.entries(m.parValeur).map(([v, d]) => {
+    const ev = em && em.parValeur[v] ? em.parValeur[v] : null;
+    return [
+      v,
+      d.famille === "reco" ? "Recommandation" : "Rappel au droit",
+      String(d.total),
+      { texte:String(d.reste), gras:true, couleur: d.reste ? "#C0504D" : "#4e6b28" },
+      { texte:ev ? formateEcart(ev.reste) : "", couleur:couleurEcart(ev ? ev.reste : null, "bas") }
+    ];
+  });
+  bloc(doc, page, { x:MARGE, y:6.9, w:14.3, h:0.8, texte:"Répartition",
+                    taille:13, gras:true, couleur:"#C0504D", vertical:"bottom" });
+  tableau(doc, page, {
+    x:MARGE, y:7.8, largeurs:[5.2, 4.1, 1.8, 1.8, 1.4],
+    entetes:["Valeur", "Famille", "Total", "Reste", "Écart"], lignes:detail
+  });
+
+  const png = camembert([
+    { nom:"Terminé", valeur:(m.familles.reco.total + m.familles.rappel.total) -
+                            (m.familles.reco.reste + m.familles.rappel.reste), couleur:"#9BBB59" },
+    { nom:"Reste à faire", valeur:m.familles.reco.reste + m.familles.rappel.reste, couleur:"#C0504D" }
+  ], "État d'avancement");
+  image(doc, page, { x:MARGE + 15.2, y:3.6, w:10.0, h:6.2, base64:png });
+
+  const reste = m.resteListe;
+  if(reste.length){
+    bloc(doc, page, { x:MARGE + 15.2, y:10.2, w:10.0, h:0.8, texte:"Reste à faire",
+                      taille:13, gras:true, couleur:"#C0504D", vertical:"bottom" });
+    tableau(doc, page, {
+      x:MARGE + 15.2, y:11.1, largeurs:[6.4, 1.8, 1.8],
+      entetes:["Libellé", "Type", "Avanc."],
+      lignes: reste.slice(0, 10).map(r => [
+        r.libelle,
+        r.type.length > 14 ? r.type.slice(0, 13) + "…" : r.type,
+        { texte:r.avancement + " %", fond:couleurAvancement(r.avancement, false), couleur:"#26221F" }
+      ])
+    });
+    if(reste.length > 10){
+      const suite = nouvellePage(doc, "MEC 2023 — reste à faire (suite)", null);
+      for(let d = 10; d < reste.length; d += 14){
+        const cible = d === 10 ? suite : nouvellePage(doc, "MEC 2023 — reste à faire (suite)", null);
+        tableau(doc, cible, {
+          x:MARGE, y:3.4, largeurs:[14.0, 5.4, 3.0, 2.8],
+          entetes:["Libellé", "Type", "Porteur", "Avancement"],
+          lignes: reste.slice(d, d + 14).map(r => [
+            r.libelle, r.type, r.porteur,
+            { texte:r.avancement + " %", fond:couleurAvancement(r.avancement, false) }
+          ])
+        });
+      }
+    }
+  }
+}
+
+function pageP2A(doc, c){
+  const p = c.p2a;
+  const ep = ecarts ? ecarts.p2a : null;
+  const choisis = (cfg.p2aChoisis || []).join(" · ") || "aucun millésime sélectionné";
+  const page = nouvellePage(doc, "P2A", "Millésimes retenus : " + choisis +
+    (ep ? " · " + (ep.comparable ? sousTitreComparaison() : ep.message) : ""));
+
+  if(!p.lignes.length){
+    bloc(doc, page, { x:MARGE, y:4, w:LARG, h:1, taille:12, couleur:"#6F6862",
+                      texte:"Aucune ligne ne porte les millésimes sélectionnés." });
+    return;
+  }
+
+  bloc(doc, page, { x:MARGE, y:3.4, w:6.4, h:2.4, fond:"#C0504D", texte:"", trait:null });
+  bloc(doc, page, { x:MARGE, y:3.5, w:6.4, h:1.5, texte:String(p.lignes.length),
+                    taille:40, gras:true, couleur:"#FFFFFF", align:"center" });
+  bloc(doc, page, { x:MARGE, y:5.0, w:6.4, h:0.8, taille:11, couleur:"#FFFFFF", align:"center",
+                    texte:"projets et actions" });
+  if(ep && ep.comparable) ecartBadge(doc, page, MARGE + 4.9, 3.4, ep.total, "neutre");
+
+  let x = MARGE + 7.0;
+  Object.entries(p.parMillesime).forEach(([m, n]) => {
+    const d = ep ? ep.parMillesime[m] : null;
+    bloc(doc, page, { x, y:3.4, w:3.6, h:2.4, fond:"#f4f2ef", trait:"#d8d5d0", texte:"" });
+    bloc(doc, page, { x, y:3.6, w:3.6, h:1.3, texte:String(n), taille:28, gras:true,
+                      couleur:"#C0504D", align:"center" });
+    bloc(doc, page, { x, y:4.9, w:3.6, h:0.8,
+                      texte:m + (d != null ? "  (" + formateEcart(d) + ")" : ""),
+                      taille:10, couleur:"#6F6862", align:"center" });
+    x += 3.9;
+  });
+
+  const largeurs = [4.0, 2.4, 11.2, 4.6, 3.0];
+  const entetes = ["Millésimes", "Nature", "Libellé", "Porteur", "Avancement"];
+  const parPage = 15;
+  for(let d = 0; d < p.lignes.length; d += parPage){
+    const cible = d === 0 ? page : nouvellePage(doc, "P2A (suite)", null);
+    tableau(doc, cible, {
+      x:MARGE, y: d === 0 ? 6.4 : 3.4, largeurs, entetes,
+      lignes: p.lignes.slice(d, d + parPage).map(l => [
+        l.millesimes, l.nature, l.libelle, l.porteur,
+        { texte:l.avancement + " %", fond:couleurAvancement(l.avancement, l.interrompu),
+          couleur:l.interrompu ? "#FFFFFF" : "#26221F" }
+      ])
+    });
+  }
+}
+
+/* --- assemblage du fichier --- */
+
+const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+  'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" ' +
+  'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" ' +
+  'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" ' +
+  'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" ' +
+  'xmlns:xlink="http://www.w3.org/1999/xlink" ' +
+  'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" ' +
+  'xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0" ' +
+  'office:version="1.2"';
+
+function contentXML(doc){
+  const pages = doc.pages.map((p, i) =>
+    '<draw:page draw:name="page' + (i + 1) + '" draw:style-name="dp1" ' +
+    'draw:master-page-name="Default">' + p.join("") + "</draw:page>").join("");
+  return '<?xml version="1.0" encoding="UTF-8"?>' +
+    "<office:document-content " + NS + ">" +
+    "<office:font-face-decls>" +
+    '<style:font-face style:name="Tahoma" svg:font-family="Tahoma" ' +
+    'style:font-family-generic="swiss" style:font-pitch="variable"/>' +
+    "</office:font-face-decls>" +
+    "<office:automatic-styles>" +
+    '<style:style style:name="dp1" style:family="drawing-page"/>' +
+    doc.styles.join("") +
+    "</office:automatic-styles>" +
+    "<office:body><office:presentation>" + pages + "</office:presentation></office:body>" +
+    "</office:document-content>";
+}
+
+function stylesXML(){
+  return '<?xml version="1.0" encoding="UTF-8"?>' +
+    "<office:document-styles " + NS + ">" +
+    "<office:font-face-decls>" +
+    '<style:font-face style:name="Tahoma" svg:font-family="Tahoma" ' +
+    'style:font-family-generic="swiss" style:font-pitch="variable"/>' +
+    "</office:font-face-decls>" +
+    "<office:styles/>" +
+    "<office:automatic-styles>" +
+    '<style:page-layout style:name="PM1"><style:page-layout-properties ' +
+    'fo:margin-top="0cm" fo:margin-bottom="0cm" fo:margin-left="0cm" fo:margin-right="0cm" ' +
+    'fo:page-width="' + L + 'cm" fo:page-height="' + H + 'cm" ' +
+    'style:print-orientation="landscape"/></style:page-layout>' +
+    '<style:style style:name="dpm1" style:family="drawing-page">' +
+    '<style:drawing-page-properties draw:fill="solid" draw:fill-color="#ffffff"/></style:style>' +
+    "</office:automatic-styles>" +
+    "<office:master-styles>" +
+    '<style:master-page style:name="Default" style:page-layout-name="PM1" ' +
+    'draw:style-name="dpm1"/>' +
+    "</office:master-styles></office:document-styles>";
+}
+
+function metaXML(annee){
+  return '<?xml version="1.0" encoding="UTF-8"?>' +
+    '<office:document-meta ' + NS + ' xmlns:dc="http://purl.org/dc/elements/1.1/" ' +
+    'xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0">' +
+    "<office:meta><dc:title>Revue annuelle " + annee + "</dc:title>" +
+    "<meta:creation-date>" + new Date().toISOString() + "</meta:creation-date>" +
+    "</office:meta></office:document-meta>";
+}
+
+function manifestXML(images){
+  const img = images.map(i =>
+    '<manifest:file-entry manifest:full-path="' + i.nom + '" manifest:media-type="image/png"/>').join("");
+  return '<?xml version="1.0" encoding="UTF-8"?>' +
+    '<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" ' +
+    'manifest:version="1.2">' +
+    '<manifest:file-entry manifest:full-path="/" ' +
+    'manifest:media-type="application/vnd.oasis.opendocument.presentation"/>' +
+    '<manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>' +
+    '<manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>' +
+    '<manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/>' +
+    img + "</manifest:manifest>";
+}
+
+async function genere(){
+  if(!calcul){ alerte("Chargez d'abord les données."); return; }
+  const type = typeCourant();
+  if(type.sortie === "pdf") return generePDF(type);
+  if(typeof JSZip === "undefined"){
+    alerte("La bibliothèque de compression n'a pas pu être chargée. Vérifiez l'accès au réseau depuis le widget.");
+    return;
+  }
+  const c = calcul, doc = creeDoc(), inclus = cfg.diapos || [];
+
+  if(inclus.includes("d1")) pageActualites(doc, c);
+  if(inclus.includes("d2")) pageNature(doc, c, c.peps, "PEPS", "peps");
+  if(inclus.includes("d3")) pageNature(doc, c, c.av, "Actions à valoriser", "av");
+  if(inclus.includes("d4")) pageMEC(doc, c);
+  if(inclus.includes("d5")) pageP2A(doc, c);
+  if(!doc.pages.length){ alerte("Aucune diapositive sélectionnée."); return; }
+  piedDePage(doc);
+
+  const zip = new JSZip();
+  // Le mimetype doit être la première entrée et rester non compressé.
+  zip.file("mimetype", "application/vnd.oasis.opendocument.presentation", { compression:"STORE" });
+  zip.file("content.xml", contentXML(doc));
+  zip.file("styles.xml", stylesXML());
+  zip.file("meta.xml", metaXML(c.annee));
+  zip.folder("META-INF").file("manifest.xml", manifestXML(doc.images));
+  doc.images.forEach(i => zip.file(i.nom, i.base64, { base64:true }));
+
+  const blob = await zip.generateAsync({ type:"blob",
+    mimeType:"application/vnd.oasis.opendocument.presentation" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = typeCourant().fichier + "_" + c.annee + ".odp";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  alerte("Diaporama créé : " + doc.pages.length + " diapositive(s).", true);
+}
+
+
+/* ================================================================== */
+/* Sortie PDF — mise en page reprise du widget « Revue d'avancement »  */
+/* ================================================================== */
+
+const LOGO_B64 = "data:image/png;base64,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";
+
+const ENCRE_P   = [26,26,24],   GRIS_P    = [102,102,96], ESTOMPE_P = [136,135,128];
+const TRAIT_P   = [221,219,211], FOND_P   = [244,243,238], ROUGE_P   = [192,80,77];
+const VIDE_P    = [201,199,191];
+const VERT_ENCRE = [59,109,17], VERT_FOND = [234,243,222];
+const ROUGE_ENCRE = [153,51,51], ROUGE_FOND = [252,235,235];
+
+/* Bandes d'avancement, mêmes teintes que la revue d'avancement. */
+const BANDES = [
+  { cle:"termine",    libelle:"Terminé",    couleur:[155,187, 89], fond:[237,245,224], encre:[ 59,109, 17] },
+  { cle:"en cours",   libelle:"En cours",   couleur:[255,204,  0], fond:[255,248,219], encre:[122, 96,  0] },
+  { cle:"a engager",  libelle:"À engager",  couleur:[192, 80, 77], fond:[251,235,235], encre:[153, 51, 51] },
+  { cle:"interrompu", libelle:"Interrompu", couleur:[ 89, 89, 89], fond:[241,239,232], encre:[102,102, 96] }
+];
+
+const CAT_COULEURS = [[191,32,111],[128,100,162],[75,172,198],[0,0,145],[120,140,60],[210,140,40]];
+
+const MARGE_P = 12;
+const droiteDe = doc => doc.internal.pageSize.getWidth() - MARGE_P;
+const basDe    = doc => doc.internal.pageSize.getHeight() - 16;
+
+function bandeDe(avancement, interrompu){
+  if(interrompu) return BANDES[3];
+  if(avancement >= 100) return BANDES[0];
+  if(avancement > 0) return BANDES[1];
+  return BANDES[2];
+}
+
+function enTetePdf(doc, ctx){
+  doc.addImage(LOGO_B64, "PNG", MARGE_P, 8, 30, 19.2);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(13); doc.setTextColor(...ENCRE_P);
+  doc.text(ctx.titre, 48, 17);
+  doc.setFontSize(8); doc.setTextColor(...ESTOMPE_P);
+  doc.text(ctx.sousTitre, 48, 23);
+  doc.setFillColor(...ROUGE_P);
+  doc.rect(MARGE_P, 28, droiteDe(doc) - MARGE_P, 1.1, "F");
+  return 38;
+}
+
+function nouvelleFeuillePdf(doc, ctx){
+  doc.addPage("a4", "portrait");
+  ctx.pages.push("portrait");
+  const y = enTetePdf(doc, ctx);
+  const droite = droiteDe(doc);
+  doc.setFontSize(7); doc.setTextColor(...ESTOMPE_P);
+  doc.text("Retour à la synthèse", droite, 23.5, { align:"right" });
+  doc.link(droite - 26, 19.5, 26, 5, { pageNumber:1, top:0 });
+  return y;
+}
+
+function piedDePagePdf(doc, ctx){
+  const total = doc.getNumberOfPages();
+  for(let p = 1; p <= total; p++){
+    doc.setPage(p);
+    doc.setFontSize(7.5); doc.setTextColor(...ESTOMPE_P);
+    doc.text("Page " + p + " / " + total, 105, 289, { align:"center" });
+  }
+}
+
+function cadreValeur(doc, x, y, largeur, hauteur, etiquette, valeur, couleur){
+  doc.setFillColor(...FOND_P);
+  doc.roundedRect(x, y, largeur, hauteur, 1.2, 1.2, "F");
+  doc.setFontSize(7.5); doc.setTextColor(...GRIS_P);
+  doc.text(etiquette, x + largeur / 2, y + 6, { align:"center" });
+  doc.setFontSize(15); doc.setTextColor(...couleur);
+  doc.text(valeur, x + largeur / 2, y + 15, { align:"center" });
+}
+
+/* Pastille d'évolution, dans l'esprit du bloc de comparaison du widget d'origine. */
+function badgeEcart(doc, x, y, d, sens){
+  if(d == null) return;
+  const neutre = d === 0 || sens === "neutre";
+  const favorable = sens === "haut" ? d > 0 : d < 0;
+  const fond  = neutre ? FOND_P : (favorable ? VERT_FOND : ROUGE_FOND);
+  const encre = neutre ? GRIS_P : (favorable ? VERT_ENCRE : ROUGE_ENCRE);
+  const texte = d === 0 ? "=" : (d > 0 ? "+" : "") + d;
+  doc.setFillColor(...fond);
+  doc.roundedRect(x, y, 16, 7, 1.2, 1.2, "F");
+  doc.setFontSize(9); doc.setTextColor(...encre);
+  doc.text(texte, x + 8, y + 4.8, { align:"center" });
+}
+
+function legendePdf(doc, x, y, entrees, largeur){
+  let ligne = y;
+  for(const e of entrees){
+    doc.setFillColor(...e.couleur);
+    doc.rect(x, ligne - 2.6, 3, 3, "F");
+    doc.setFontSize(7.5); doc.setTextColor(61, 61, 58);
+    doc.text(e.libelle, x + 5, ligne);
+    doc.setTextColor(...GRIS_P);
+    doc.text(e.valeur, x + largeur, ligne, { align:"right" });
+    ligne += 6.5;
+  }
+  return ligne;
+}
+
+function donut(segments, total){
+  const taille = 480, canvas = document.createElement("canvas");
+  canvas.width = canvas.height = taille;
+  const ctx = canvas.getContext("2d");
+  const cx = taille / 2, cy = taille / 2, rExt = taille / 2 - 4, rInt = rExt * 0.56;
+  let angle = -Math.PI / 2;
+  for(const seg of segments){
+    if(!seg.valeur) continue;
+    const balayage = (seg.valeur / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rExt, angle, angle + balayage);
+    ctx.arc(cx, cy, rInt, angle + balayage, angle, true);
+    ctx.closePath();
+    ctx.fillStyle = "rgb(" + seg.couleur.join(",") + ")";
+    ctx.fill();
+    angle += balayage;
+  }
+  ctx.fillStyle = "rgb(26,26,24)";
+  ctx.font = "500 62px Tahoma, Verdana, sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(String(total), cx, cy + 2);
+  return canvas.toDataURL("image/png");
+}
+
+function titreSection(doc, y, texte){
+  doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
+  doc.text(texte, MARGE_P, y);
+  doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
+  doc.line(MARGE_P, y + 1.8, droiteDe(doc), y + 1.8);
+  return y + 8;
+}
+
+/* Tableau avec report d'en-tête sur les pages suivantes. */
+function tableauPdf(doc, ctx, o){
+  let y = o.y;
+  const cols = o.colonnes;
+  const dessineEntete = () => {
+    doc.setFontSize(7); doc.setTextColor(...GRIS_P);
+    let x = MARGE_P;
+    cols.forEach(c => {
+      doc.text(c.titre, c.align === "right" ? x + c.largeur : x, y,
+               { align:c.align === "right" ? "right" : "left" });
+      x += c.largeur;
+    });
+    doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
+    doc.line(MARGE_P, y + 1.6, droiteDe(doc), y + 1.6);
+    y += 6.5;
+  };
+  dessineEntete();
+
+  o.lignes.forEach(ligne => {
+    if(y > basDe(doc)){ y = nouvelleFeuillePdf(doc, ctx); dessineEntete(); }
+    let x = MARGE_P;
+    cols.forEach((c, i) => {
+      const cell = ligne[i];
+      const valeur = (cell && typeof cell === "object") ? cell.texte : String(cell == null ? "" : cell);
+      if(cell && typeof cell === "object" && cell.fond){
+        doc.setFillColor(...cell.fond);
+        doc.roundedRect(x, y - 3.6, c.largeur - 2, 5.2, 1, 1, "F");
+        doc.setTextColor(...(cell.encre || ENCRE_P));
+      }else{
+        doc.setTextColor(...(valeur ? ENCRE_P : VIDE_P));
+      }
+      doc.setFontSize(7.5);
+      const texte = doc.splitTextToSize(valeur || "—", c.largeur - 3)[0];
+      doc.text(texte, c.align === "right" ? x + c.largeur - 3 : x + (cell && cell.fond ? 2 : 0), y,
+               { align:c.align === "right" ? "right" : "left" });
+      x += c.largeur;
+    });
+    doc.setDrawColor(237, 235, 228); doc.setLineWidth(0.15);
+    doc.line(MARGE_P, y + 2.2, droiteDe(doc), y + 2.2);
+    y += 6.8;
+  });
+  return y;
+}
+
+function contextePdf(titre, sousTitre){
+  return { titre, sousTitre, pages:["portrait"] };
+}
+
+/* ---------- Revues PEPS et actions à valoriser ---------- */
+
+function compteBandes(b){
+  const frac = detecteFraction(recPEPS, cfg.colAvancement);
+  const compte = { termine:0, "en cours":0, "a engager":0, interrompu:0 };
+  b.stockLignes.forEach(l => {
+    const inter = [cfg.colSuspension, cfg.colAbandon].some(k => k && versDate(l[k]));
+    compte[bandeDe(versPourcent(l[cfg.colAvancement], frac), inter).cle]++;
+  });
+  return compte;
+}
+
+/* Bloc d'un volet : trois cadres, anneau et légende. Renvoie le y suivant. */
+function blocVolet(doc, c, b, cle, y, tailleDonut){
+  const e = ecarts ? ecarts[cle] : null;
+  const compte = compteBandes(b);
+  const encours = b.stockLignes.length;
+  const largeur = (droiteDe(doc) - MARGE_P - 8) / 3;
+
+  cadreValeur(doc, MARGE_P, y, largeur, 21,
+    "En cours au 01/01/" + c.annee, String(b.stock), ENCRE_P);
+  cadreValeur(doc, MARGE_P + largeur + 4, y, largeur, 21,
+    "Terminés en " + c.annee, String(b.termines.length), VERT_ENCRE);
+  cadreValeur(doc, MARGE_P + 2 * (largeur + 4), y, largeur, 21,
+    "Interrompus", String(compte.interrompu), GRIS_P);
+  if(e){
+    badgeEcart(doc, MARGE_P + largeur - 18, y + 2, e.stock, "neutre");
+    badgeEcart(doc, MARGE_P + 2 * largeur - 14, y + 2, e.termines, "haut");
+  }
+  y += 25;
+
+  const taille = tailleDonut || 44;
+  const segments = BANDES.map(s => ({ libelle:s.libelle, couleur:s.couleur, valeur:compte[s.cle] }));
+  doc.addImage(donut(segments, encours), "PNG", MARGE_P, y, taille, taille);
+  legendePdf(doc, MARGE_P + taille + 10, y + (taille - 20) / 2,
+    segments.map(s => ({ libelle:s.libelle, couleur:s.couleur,
+      valeur:s.valeur + (encours ? "  (" + Math.round(s.valeur / encours * 100) + " %)" : "") })),
+    droiteDe(doc) - MARGE_P - taille - 10);
+  return y + taille + 8;
+}
+
+/* Tableau des projets terminés d'un volet. */
+function tableauTermines(doc, ctx, b, y){
+  if(y > basDe(doc) - 30) y = nouvelleFeuillePdf(doc, ctx);
+  y = titreSection(doc, y, "Terminés dans l'année");
+  if(!b.termines.length){
+    doc.setFontSize(8); doc.setTextColor(...ESTOMPE_P);
+    doc.text("Aucun projet terminé sur la période.", MARGE_P, y);
+    return y + 8;
+  }
+  return tableauPdf(doc, ctx, { y, lignes:b.termines.map(t =>
+      [t.libelle, t.porteur, t.groupement, t.date]),
+    colonnes:[{ titre:"Libellé", largeur:86 }, { titre:"Porteur", largeur:40 },
+              { titre:"Groupement", largeur:36 }, { titre:"Fin", largeur:24, align:"right" }] });
+}
+
+function pdfNature(doc, ctx, c, b, cle){
+  let y = enTetePdf(doc, ctx);
+  y = blocVolet(doc, c, b, cle, y);
+  tableauTermines(doc, ctx, b, y);
+}
+
+/* Revue combinée PEPS + actions à valoriser. */
+function pdfProjets(doc, ctx, c){
+  let y = enTetePdf(doc, ctx);
+
+  y = titreSection(doc, y, "PEPS");
+  y = blocVolet(doc, c, c.peps, "peps", y, 38);
+
+  y = titreSection(doc, y + 4, "Actions à valoriser");
+  y = blocVolet(doc, c, c.av, "av", y, 38);
+
+  y = nouvelleFeuillePdf(doc, ctx);
+  y = titreSection(doc, y, "PEPS — terminés dans l'année");
+  y = tableauTerminesSimple(doc, ctx, c.peps, y);
+
+  if(y > basDe(doc) - 30) y = nouvelleFeuillePdf(doc, ctx);
+  y = titreSection(doc, y + 6, "Actions à valoriser — terminées dans l'année");
+  tableauTerminesSimple(doc, ctx, c.av, y);
+}
+
+/* Même tableau, sans son propre titre de section. */
+function tableauTerminesSimple(doc, ctx, b, y){
+  if(!b.termines.length){
+    doc.setFontSize(8); doc.setTextColor(...ESTOMPE_P);
+    doc.text("Aucun projet terminé sur la période.", MARGE_P, y);
+    return y + 8;
+  }
+  return tableauPdf(doc, ctx, { y, lignes:b.termines.map(t =>
+      [t.libelle, t.porteur, t.groupement, t.date]),
+    colonnes:[{ titre:"Libellé", largeur:86 }, { titre:"Porteur", largeur:40 },
+              { titre:"Groupement", largeur:36 }, { titre:"Fin", largeur:24, align:"right" }] });
+}
+
+/* ---------- Revue MEC ---------- */
+
+function pdfMEC(doc, ctx, c){
+  let y = enTetePdf(doc, ctx);
+  const m = c.mec, em = ecarts ? ecarts.mec : null;
+  const largeur = (droiteDe(doc) - MARGE_P - 8) / 3;
+  const total = m.familles.reco.total + m.familles.rappel.total;
+  const reste = m.familles.reco.reste + m.familles.rappel.reste;
+
+  cadreValeur(doc, MARGE_P, y, largeur, 21, "Recommandations",
+    String(m.familles.reco.total), ENCRE_P);
+  cadreValeur(doc, MARGE_P + largeur + 4, y, largeur, 21, "Rappels au droit",
+    String(m.familles.rappel.total), ENCRE_P);
+  cadreValeur(doc, MARGE_P + 2 * (largeur + 4), y, largeur, 21, "Reste à faire",
+    String(reste), reste ? ROUGE_ENCRE : VERT_ENCRE);
+  if(em){
+    badgeEcart(doc, MARGE_P + largeur - 18, y + 2, em.recoTotal, "neutre");
+    badgeEcart(doc, MARGE_P + 2 * largeur - 14, y + 2, em.rappelTotal, "neutre");
+    badgeEcart(doc, MARGE_P + 3 * largeur - 10, y + 2,
+      em.recoReste == null || em.rappelReste == null ? null : em.recoReste + em.rappelReste, "bas");
+  }
+  y += 29;
+
+  y = titreSection(doc, y, "Répartition par catégorie");
+  const cats = Object.entries(m.parValeur).map(([v, d], i) =>
+    ({ libelle:v, couleur:CAT_COULEURS[i % CAT_COULEURS.length], valeur:d.total }));
+  doc.addImage(donut(cats, total), "PNG", MARGE_P, y, 44, 44);
+  legendePdf(doc, MARGE_P + 54, y + 8,
+    cats.map(s => ({ libelle:s.libelle, couleur:s.couleur, valeur:String(s.valeur) })),
+    droiteDe(doc) - MARGE_P - 54);
+  y += 52;
+
+  y = titreSection(doc, y, "Détail par catégorie");
+  y = tableauPdf(doc, ctx, { y,
+    colonnes:[{ titre:"Catégorie", largeur:74 }, { titre:"Famille", largeur:44 },
+              { titre:"Total", largeur:24, align:"right" },
+              { titre:"Reste", largeur:22, align:"right" },
+              { titre:"Écart", largeur:22, align:"right" }],
+    lignes:Object.entries(m.parValeur).map(([v, d]) => {
+      const ev = em && em.parValeur[v] ? em.parValeur[v] : null;
+      return [v, d.famille === "reco" ? "Recommandation" : "Rappel au droit",
+              String(d.total), String(d.reste),
+              ev && ev.reste != null ? (ev.reste > 0 ? "+" : "") + ev.reste : ""];
+    }) });
+
+  if(m.resteListe.length){
+    y = titreSection(doc, y + 6, "Reste à faire");
+    tableauPdf(doc, ctx, { y,
+      colonnes:[{ titre:"Libellé", largeur:88 }, { titre:"Catégorie", largeur:48 },
+                { titre:"Porteur", largeur:30 },
+                { titre:"Avancement", largeur:20, align:"right" }],
+      lignes:m.resteListe.map(r => {
+        const bande = bandeDe(r.avancement, false);
+        return [r.libelle, r.type, r.porteur,
+                { texte:r.avancement + " %", fond:bande.fond, encre:bande.encre }];
+      }) });
+  }
+}
+
+/* ---------- Revue P2A ---------- */
+
+function pdfP2A(doc, ctx, c){
+  let y = enTetePdf(doc, ctx);
+  const p = c.p2a, ep = ecarts ? ecarts.p2a : null;
+
+  if(!p.lignes.length){
+    doc.setFontSize(8); doc.setTextColor(...ESTOMPE_P);
+    doc.text("Aucune ligne ne porte les millésimes sélectionnés.", MARGE_P, y);
+    return;
+  }
+
+  const compte = { termine:0, "en cours":0, "a engager":0, interrompu:0 };
+  p.lignes.forEach(l => compte[bandeDe(l.avancement, l.interrompu).cle]++);
+
+  const millesimes = Object.entries(p.parMillesime);
+  const nb = Math.min(millesimes.length + 1, 4);
+  const largeur = (droiteDe(doc) - MARGE_P - 4 * (nb - 1)) / nb;
+  cadreValeur(doc, MARGE_P, y, largeur, 21, "Projets et actions", String(p.lignes.length), ENCRE_P);
+  if(ep && ep.comparable) badgeEcart(doc, MARGE_P + largeur - 18, y + 2, ep.total, "neutre");
+  millesimes.slice(0, nb - 1).forEach(([m, n], i) => {
+    const x = MARGE_P + (i + 1) * (largeur + 4);
+    cadreValeur(doc, x, y, largeur, 21, m, String(n), ENCRE_P);
+    if(ep && ep.parMillesime[m] != null)
+      badgeEcart(doc, x + largeur - 18, y + 2, ep.parMillesime[m], "neutre");
+  });
+  y += 29;
+
+  if(ep && ep.message){
+    doc.setFontSize(7.5); doc.setTextColor(...ROUGE_ENCRE);
+    doc.text(ep.message, MARGE_P, y); y += 7;
+  }
+
+  y = titreSection(doc, y, "Répartition par avancement");
+  const segments = BANDES.map(s => ({ libelle:s.libelle, couleur:s.couleur, valeur:compte[s.cle] }));
+  doc.addImage(donut(segments, p.lignes.length), "PNG", MARGE_P, y, 44, 44);
+  legendePdf(doc, MARGE_P + 54, y + 10,
+    segments.map(s => ({ libelle:s.libelle, couleur:s.couleur, valeur:String(s.valeur) })),
+    droiteDe(doc) - MARGE_P - 54);
+  y += 52;
+
+  y = titreSection(doc, y, "Projets et actions retenus");
+  tableauPdf(doc, ctx, { y,
+    colonnes:[{ titre:"Millésimes", largeur:30 }, { titre:"Nature", largeur:18 },
+              { titre:"Libellé", largeur:80 }, { titre:"Porteur", largeur:38 },
+              { titre:"Avanc.", largeur:20, align:"right" }],
+    lignes:p.lignes.map(l => {
+      const bande = bandeDe(l.avancement, l.interrompu);
+      return [l.millesimes, l.nature, l.libelle, l.porteur,
+              { texte:l.avancement + " %", fond:bande.fond, encre:bande.encre }];
+    }) });
+}
+
+async function generePDF(type){
+  if(typeof window.jspdf === "undefined"){
+    alerte("La bibliothèque PDF n'a pas pu être chargée. Vérifiez l'accès au réseau depuis le widget.");
+    return;
+  }
+  const c = calcul;
+  const sousTitre = "Édition du " + jjmmaaaa(new Date()) +
+    (ecarts ? " — comparaison : " + ecarts.libelleA + " / " + ecarts.libelleB : "");
+  const ctx = contextePdf(type.nom + " — " + c.annee, sousTitre);
+  const doc = new window.jspdf.jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
+
+  if(type.id === "mec") pdfMEC(doc, ctx, c);
+  else if(type.id === "p2a") pdfP2A(doc, ctx, c);
+  else if(type.id === "projets") pdfProjets(doc, ctx, c);
+  else if(type.id === "peps") pdfNature(doc, ctx, c, c.peps, "peps");
+  else if(type.id === "av") pdfNature(doc, ctx, c, c.av, "av");
+
+  piedDePagePdf(doc, ctx);
+  doc.save(type.fichier + "_" + c.annee + ".pdf");
+  alerte("PDF créé : " + doc.getNumberOfPages() + " page(s).", true);
+}
+
+/* ------------------------------------------------------------------ */
+/* Démarrage                                                           */
+/* ------------------------------------------------------------------ */
+
+function onglet(actif){
+  $("ongletConf").setAttribute("aria-selected", actif === "conf");
+  $("ongletGen").setAttribute("aria-selected", actif === "gen");
+  $("secConf").hidden = actif !== "conf";
+  $("secGen").hidden  = actif !== "gen";
+}
+
+$("ongletConf").addEventListener("click", () => onglet("conf"));
+$("ongletGen").addEventListener("click", () => { onglet("gen"); recalcule(); });
+$("btnGen").addEventListener("click", () => genere().catch(e => alerte("Échec : " + e.message)));
+$("btnRecharge").addEventListener("click", () =>
+  chargeDonnees().then(recalcule).catch(e => alerte("Échec : " + e.message)));
+$("annee").addEventListener("change", () => { sauve(); recalcule(); });
+$("btnArchive").addEventListener("click", () =>
+  archiveEdition().catch(e => alerte("Échec : " + e.message)));
+$("tHisto").addEventListener("change", () =>
+  chargeHistorique().then(recalcule).catch(e => alerte("Échec : " + e.message)));
+$("memeType").addEventListener("change", () => { construitComparaison(); recalcule(); });
+["revA", "revB"].forEach(id => $(id).addEventListener("change", () => {
+  cfg.revA = $("revA").value; cfg.revB = $("revB").value;
+  sauve(); recalcule();
+}));
+["tPEPS", "tMEC"].forEach(id => $(id).addEventListener("change", () =>
+  chargeDonnees().then(recalcule).catch(e => alerte("Échec : " + e.message))));
+
+async function demarre(){
+  try{
+    await grist.ready({ requiredAccess:"full" });
+    cfg = (await grist.widgetApi.getOptions()) || {};
+    $("annee").value = cfg.annee || new Date().getFullYear();
+    construitDiapos();
+    construitTypes();
+    appliqueType();
+    await chargeTables();
+    await chargeDonnees();
+    await chargeHistorique();
+    recalcule();
+  }catch(e){
+    alerte("Le widget n'a pas pu lire le document : " + e.message +
+           " — vérifiez que l'accès complet au document est autorisé dans le panneau de droite.");
+    $("etat").textContent = "Accès refusé";
+  }
+}
+demarre();
+</script>
+</body>
+</html>
