@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-23</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-24</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1449,7 +1449,10 @@ function pageMEC(doc, c){
       couleur:"#9BBB59" },
     { nom:"En cours de réalisation", valeur:reste, couleur:"#C0504D" }
   ], "État d'avancement");
-  image(doc, page, { x:MARGE, y:Y_CONTENU, w:9.8, h:6.1, base64:png });
+  // Le camembert et la matrice sont centrés verticalement dans la zone de contenu.
+  const hBloc = 6.1;
+  const yBloc = Y_CONTENU + (Y_MAX - Y_CONTENU - hBloc) / 2;
+  image(doc, page, { x:MARGE, y:yBloc, w:9.8, h:hBloc, base64:png });
 
   // Matrice catégorie x statut, comme le bloc focus des PDF, aux teintes du diaporama.
   // Ordre imposé : recommandation majeure, rappel au droit principal,
@@ -1477,7 +1480,7 @@ function pageMEC(doc, c){
       Object.assign({ texte: l[k] ? String(l[k]) : "—" }, teintes[k])));
   });
 
-  tableauPagine(doc, { page, x:MARGE + 10.4, y:Y_CONTENU,
+  tableauPagine(doc, { page, x:MARGE + 10.4, y:yBloc,
     largeurs:[4.6, 2.5, 2.5, 2.5, 2.7],
     entetes:["Catégorie", "À engager", "En cours", "Terminé", "Interrompu"],
     alignes:["start", "center", "center", "center", "center"],
