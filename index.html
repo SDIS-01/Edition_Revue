@@ -1251,6 +1251,11 @@ function cartouche(doc, page, x, largeur, valeur, libelle, fond, ecart, sens){
 
 /* ---------- Diapositives ---------- */
 
+function sousTitreComparaison(){
+  if(!ecarts) return null;
+  return "Comparaison : " + ecarts.libelleA + " / référence : " + ecarts.libelleB;
+}
+
 function pageActualites(doc, c){
   const page = nouvellePage(doc, "Actualités " + c.annee, sousTitreComparaison());
   bloc(doc, page, { x:MARGE, y:Y_CONTENU, w:LARG, h:Y_MAX - Y_CONTENU, texte:"",
