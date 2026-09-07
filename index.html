@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-32</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-33</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1270,8 +1270,15 @@ function anneauAvancement(pct, libelle){
 
   g.fillStyle = "#26221f";
   g.textAlign = "center"; g.textBaseline = "middle";
-  g.font = "bold 112px Tahoma, sans-serif";
-  g.fillText(Math.round(pct) + " %", cx, cy);
+  // Corps réduit puis ajusté pour rester à l'intérieur de l'anneau.
+  const valeur = Math.round(pct) + " %";
+  let corps = 74;
+  g.font = "bold " + corps + "px Tahoma, sans-serif";
+  while(corps > 40 && g.measureText(valeur).width > rInt * 1.7){
+    corps -= 4;
+    g.font = "bold " + corps + "px Tahoma, sans-serif";
+  }
+  g.fillText(valeur, cx, cy);
   if(libelle){
     g.font = "34px Tahoma, sans-serif";
     g.fillText(libelle, cx, 580);
