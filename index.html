@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-8</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-9</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -207,9 +207,6 @@ const TYPES = [
   { id:"complete",   nom:"Revue annuelle complète", diapos:["d1","d2","d3","d4","d5"],
     fichier:"Revue_annuelle", sortie:"odp",
     desc:"Diaporama Impress des cinq diapositives : actualités, PEPS, actions à valoriser, MEC 2023 et P2A." },
-  { id:"actualites", nom:"Actualités",              diapos:["d1"], fichier:"Actualites",
-    sortie:"odp",
-    desc:"Diaporama d'une diapositive d'actualités, à compléter dans Impress." },
   { id:"peps",       nom:"PEPS",                    diapos:["d2"], fichier:"Revue_PEPS",
     sortie:"pdf",
     desc:"PDF A4 : chiffres clés, répartition du portefeuille et projets terminés dans l'année." },
@@ -1309,12 +1306,26 @@ function sousTitreComparaison(){
   return "Comparaison : " + ecarts.libelleA + " / référence : " + ecarts.libelleB;
 }
 
+/* Diapositive d'actualités : cadres vides prêts à être remplis dans Impress.
+   Un bandeau de rubrique coloré, une zone de saisie sous chacun. */
+function rubrique(doc, page, x, y, w, h, titre, couleur){
+  bloc(doc, page, { x, y, w, h:0.85, fond:couleur, texte:titre,
+                    taille:11, gras:true, couleur:"#FFFFFF" });
+  bloc(doc, page, { x, y:y + 0.85, w, h:h - 0.85, texte:"",
+                    fond:"#FFFFFF", trait:"#d8d5d0", vertical:"top" });
+}
+
 function pageActualites(doc, c){
   const page = nouvellePage(doc, "Actualités " + c.annee, sousTitreComparaison());
-  bloc(doc, page, { x:MARGE, y:Y_CONTENU, w:LARG, h:Y_MAX - Y_CONTENU, texte:"",
-                    fond:"#faf9f7", trait:"#d8d5d0", vertical:"top" });
-  bloc(doc, page, { x:MARGE + 0.3, y:Y_CONTENU + 0.3, w:LARG - 0.6, h:1,
-                    texte:"Saisissez ici les actualités du service.", taille:12, couleur:"#a09892" });
+  const hauteur = Y_MAX - Y_CONTENU;
+  const gauche = 15.0, droite = LARG - gauche - 0.4;
+
+  rubrique(doc, page, MARGE, Y_CONTENU, gauche, hauteur,
+           "Faits marquants", "#C0504D");
+  rubrique(doc, page, MARGE + gauche + 0.4, Y_CONTENU, droite, hauteur / 2 - 0.2,
+           "À venir", "#7f6f6c");
+  rubrique(doc, page, MARGE + gauche + 0.4, Y_CONTENU + hauteur / 2 + 0.2, droite,
+           hauteur / 2 - 0.2, "Points d'attention", "#F79646");
 }
 
 function pageNature(doc, c, b, titre, cle){
