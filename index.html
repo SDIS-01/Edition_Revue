@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-21</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-23</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1011,6 +1011,8 @@ const L = 28, H = 21;
 const MARGE = 1.4, LARG = 25.2;
 const Y_TITRE = 1.35;     // bandeau blanc du titre, posé sur l'image d'en-tête
 const H_TITRE = 1.15;
+const X_TITRE = 4.0;      // après le logo du masque, qui occupe 0,6 à 3,4
+const W_TITRE = 22.6;     // jusqu'au bord droit de la zone de titre
 const Y_HAUT = 3.6;       // premier repère sous l'image d'en-tête
 const Y_HAUT_SUITE = 1.5; // haut de page sur le gabarit à bandeau bas
 const Y_MAX_SUITE = 17.4; // au-dessus du bandeau bas
@@ -1116,7 +1118,7 @@ function nouvellePage(doc, titre, sousTitre){
     // Le bandeau doit rester dans l'image d'en-tête : on réduit le corps
     // plutôt que de laisser le texte déborder du cadre.
     const taille = titre.length > 46 ? 15 : (titre.length > 32 ? 18 : 22);
-    bloc(doc, page, { x:MARGE, y:Y_TITRE, w:LARG, h:H_TITRE, texte:titre,
+    bloc(doc, page, { x:X_TITRE, y:Y_TITRE, w:W_TITRE, h:H_TITRE, texte:titre,
                       taille, gras:true, couleur:BLEU_TITRE, fond:"#FFFFFF",
                       align:"center" });
   }
@@ -1476,18 +1478,27 @@ function pageMEC(doc, c){
   });
 
   tableauPagine(doc, { page, x:MARGE + 10.4, y:Y_CONTENU,
-    largeurs:[5.6, 2.3, 2.3, 2.3, 2.3],
+    largeurs:[4.6, 2.5, 2.5, 2.5, 2.7],
     entetes:["Catégorie", "À engager", "En cours", "Terminé", "Interrompu"],
     alignes:["start", "center", "center", "center", "center"],
     titreSuite:null, lignes:matrice });
 
   if(m.resteListe.length){
+    // Recommandation majeure, recommandation, rappel au droit principal, rappel au droit.
+    const rangListe = r => {
+      const famille = (cfg.familles && cfg.familles[r.type]) || "reco";
+      return (famille === "rappel" ? 2 : 0) +
+             (/majeur|principal/.test(String(r.type).toLowerCase()) ? 0 : 1);
+    };
+    const liste = [...m.resteListe].sort((a, b) =>
+      rangListe(a) - rangListe(b) || String(a.libelle).localeCompare(String(b.libelle), "fr"));
+
     const suite = nouvellePage(doc, "MEC 2023 — en cours de réalisation", null);
     tableauPagine(doc, { page:suite, x:MARGE, y:Y_CONTENU,
       largeurs:[13.0, 5.4, 3.8, 3.0],
       entetes:["Libellé", "Catégorie", "Porteur", "Avancement"],
       titreSuite:null,
-      lignes:m.resteListe.map(r => [
+      lignes:liste.map(r => [
         r.libelle, r.type, r.porteur,
         { texte:r.avancement + " %", couleur:encreAvancement(r.avancement, false), gras:true }
       ]) });
