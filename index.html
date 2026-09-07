@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-29</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-32</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1647,6 +1647,20 @@ const COLONNES_FOCUS = [
 const CAT_COULEURS = [[191,32,111],[128,100,162],[75,172,198],[0,0,145],
                       [120,140,60],[210,140,40],[90,90,150],[170,90,60]];
 
+/* Couleurs imposées pour les priorités. */
+const COULEURS_PRIORITE = [
+  { motif:/^p\s*1/i,       couleur:[192, 80, 77] },   // rouge
+  { motif:/^p\s*2/i,       couleur:[247,150, 70] },   // orange
+  { motif:/^p\s*3/i,       couleur:[255,204,  0] },   // jaune
+  { motif:/poursuite/i,    couleur:[128,100,162] }    // violet
+];
+
+function couleurPriorite(valeur, secours){
+  const v = String(valeur || "").trim();
+  const trouve = COULEURS_PRIORITE.find(c => c.motif.test(v));
+  return trouve ? trouve.couleur : secours;
+}
+
 const MARGE_P = 12;
 const droiteDe = doc => doc.internal.pageSize.getWidth() - MARGE_P;
 const basDe    = doc => doc.internal.pageSize.getHeight() - 16;
@@ -1700,8 +1714,8 @@ function piedDePagePdf(doc, ctx){
   }
 }
 
-function cadreValeur(doc, x, y, largeur, hauteur, etiquette, valeur, couleur){
-  doc.setFillColor(...FOND_P);
+function cadreValeur(doc, x, y, largeur, hauteur, etiquette, valeur, couleur, fond){
+  doc.setFillColor(...(fond || FOND_P));
   doc.roundedRect(x, y, largeur, hauteur, 1.2, 1.2, "F");
   doc.setFontSize(7.5); doc.setTextColor(...GRIS_P);
   doc.text(etiquette, x + largeur / 2, y + 6, { align:"center" });
@@ -1763,23 +1777,16 @@ function pageSynthesePdf(doc, ctx, jeu){
 
   doc.setFontSize(8); doc.setTextColor(...GRIS_P);
   doc.text("Avancement global", MARGE_P, y);
+
   const teinte = statutParCle(statutDeLigne(jeu.global * 100, false));
-  doc.setFillColor(...teinte.fond);
-  doc.roundedRect(MARGE_P, y + 2, 52, 18, 3, 3, "F");
-  doc.setFontSize(23); doc.setTextColor(...teinte.encre);
-  doc.text(pourcentPdf(jeu.global), MARGE_P + 26, y + 15, { align:"center" });
+  cadreValeur(doc, MARGE_P, y + 2, 46, 18, "au " + jjmmaaaa(new Date()),
+              pourcentPdf(jeu.global), teinte.encre, teinte.fond);
 
   if(jeu.evolution){
-    const ecart = (jeu.global - jeu.evolution.globalAvant) * 100;
-    const hausse = ecart >= 0;
-    doc.setFillColor(...(hausse ? [234,243,222] : [252,235,235]));
-    doc.roundedRect(70, y + 6.5, 38, 9, 1.2, 1.2, "F");
-    doc.setFontSize(9); doc.setTextColor(...(hausse ? [59,109,17] : [153,51,51]));
-    doc.text((hausse ? "+ " : "- ") + Math.abs(ecart).toFixed(1).replace(".", ",") + " pts",
-             89, y + 13, { align:"center" });
-    doc.setFontSize(7.5); doc.setTextColor(...ESTOMPE_P);
-    doc.text("vs " + jeu.evolution.libelle + " — " + pourcentPdf(jeu.evolution.globalAvant),
-             MARGE_P, y + 22);
+    const avant = jeu.evolution.globalAvant;
+    const teinteAvant = statutParCle(statutDeLigne(avant * 100, false));
+    cadreValeur(doc, MARGE_P + 50, y + 2, 46, 18, "au " + jeu.evolution.date,
+                pourcentPdf(avant), teinteAvant.encre, teinteAvant.fond);
   }
 
   if(jeu.natures && jeu.natures.length){
@@ -1946,12 +1953,28 @@ function champsDetail(type){
 
 /* Le détail ouvre toujours une nouvelle page : le sommaire vient s'insérer
    juste avant, il ne doit donc pas couper un bloc déjà commencé. */
+/* Ramène le texte à des caractères que la police standard du PDF sait mesurer :
+   apostrophes et guillemets typographiques, tirets longs, points de suspension,
+   espaces insécables. Les caractères hors jeu latin-1 sont retirés, faute de quoi
+   le rendu s'étire ou déborde. */
+function nettoiePdf(valeur){
+  return String(valeur == null ? "" : valeur)
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u2018\u2019\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u00AB\u00BB]/g, '"')
+    .replace(/[\u2010-\u2015\u2212]/g, "-")
+    .replace(/\u2026/g, "...")
+    .replace(/[\u2022\u25CF\u25AA]/g, "-")
+    .replace(/[\t\u00a0\u2000-\u200B\u202F]/g, " ")
+    .replace(/[^\x20-\xFF\n]/g, "")
+    .replace(/ {2,}/g, " ");
+}
+
 /* Découpe une valeur de cellule en lignes qui tiennent toutes dans la colonne.
    Le texte des commentaires vient de Grist : il peut contenir des retours à la
    ligne, des tabulations et des mots plus longs que la colonne. */
 function lignesCellule(doc, valeur, largeur, maxLignes){
-  const propre = String(valeur == null ? "" : valeur)
-    .replace(/\r\n?/g, "\n").replace(/\t/g, " ").replace(/[ \u00a0]+/g, " ");
+  const propre = nettoiePdf(valeur);
   let lignes = [];
   for(const segment of propre.split("\n")){
     if(lignes.length >= maxLignes) break;
@@ -1964,15 +1987,16 @@ function lignesCellule(doc, valeur, largeur, maxLignes){
   // Filet de sécurité : aucune ligne ne doit dépasser la largeur de la colonne.
   lignes = lignes.map(t => {
     let s = t;
-    while(s.length > 1 && doc.getTextWidth(s) > largeur) s = s.slice(0, -2) + "…";
+    while(s.length > 1 && doc.getTextWidth(s) > largeur) s = s.slice(0, -2) + "...";
     return s;
   });
   const complet = propre.trim();
-  if(complet && lignes.join(" ").replace(/…/g, "").length < complet.replace(/\s+/g, " ").length - 1){
+  if(complet && lignes.join(" ").replace(/\.\.\./g, "").length <
+     complet.replace(/\s+/g, " ").length - 1){
     const i = lignes.length - 1;
-    if(i >= 0 && !/…$/.test(lignes[i])){
-      let s = lignes[i] + " …";
-      while(s.length > 1 && doc.getTextWidth(s) > largeur) s = s.slice(0, -2) + "…";
+    if(i >= 0 && !/\.\.\.$/.test(lignes[i])){
+      let s = lignes[i] + " ...";
+      while(s.length > 1 && doc.getTextWidth(s) > largeur) s = s.slice(0, -2) + "...";
       lignes[i] = s;
     }
   }
@@ -2035,7 +2059,9 @@ function pageDetailPdf(doc, ctx, jeu){
             bulleAvancement(doc, c.x, y + 0.4, r.avancement, r.statut, c.l);
           }else{
             doc.setTextColor(61, 61, 58);
-            doc.text(cellules[i], c.x, y + 4);
+            // Une ligne à la fois : le tracé d'un tableau laisse jsPDF gérer
+            // l'interligne et peut étirer le texte.
+            cellules[i].forEach((t, k) => doc.text(t, c.x, y + 4 + k * 3.4));
           }
         });
         doc.setDrawColor(237, 235, 228); doc.setLineWidth(0.15);
@@ -2178,7 +2204,8 @@ function jeuProjets(c, natures){
 
   // Une couleur par priorité, réutilisée pour les combinaisons priorité + nature.
   const teinte = {};
-  priorites.forEach((p, i) => teinte[p] = CAT_COULEURS[i % CAT_COULEURS.length]);
+  priorites.forEach((p, i) =>
+    teinte[p] = couleurPriorite(p, CAT_COULEURS[i % CAT_COULEURS.length]));
   const categories = valeurs.map(v => ({
     cle:v, libelle:v, couleur:teinte[v.split(" · ")[0]] || CAT_COULEURS[0]
   }));
@@ -2267,12 +2294,13 @@ function jeuP2A(c){
 /* Reprend l'avancement global et la répartition de l'édition de référence. */
 function evolutionDe(jeu, cleBilan){
   if(!ecarts) return null;
-  const ref = editionChoisie($("revB").value);
+  const ref = histo.find(r => String(r.id) === String($("revB").value));
   if(!ref || !ref.donnees) return null;
   const bloc = ref.donnees[cleBilan];
   if(!bloc || bloc.avancement == null) return null;
   return {
     libelle: ecarts.libelleB,
+    date: ref.date ? jjmmaaaa(ref.date) : "l'édition de référence",
     globalAvant: bloc.avancement,
     parCategorie: bloc.parCategorie || null
   };
