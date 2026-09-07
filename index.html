@@ -12,6 +12,7 @@
     --trait:#d8d5d0; --fond:#ffffff; --encre:#26221f; --attenue:#6f6862;
   }
   *{box-sizing:border-box}
+  [hidden]{display:none !important}
   body{margin:0;font:13px/1.45 Tahoma,Verdana,sans-serif;color:var(--encre);background:var(--fond)}
   header{display:flex;align-items:baseline;gap:12px;padding:10px 14px;border-bottom:2px solid var(--rouge)}
   header h1{margin:0;font-size:15px;font-weight:bold}
@@ -73,12 +74,14 @@
       <p class="aide" id="descType"></p>
     </fieldset>
 
+    <div id="blocConfig" hidden>
     <fieldset>
       <legend>Tables sources</legend>
       <div class="grille">
         <div><label for="tPEPS">Table des projets et actions</label><select id="tPEPS"></select></div>
         <div><label for="tMEC">Table des recommandations</label><select id="tMEC"></select></div>
         <div><label for="annee">Année de référence</label><input type="number" id="annee" min="2000" max="2100"></div>
+        <div><label for="tHisto">Table d'historique</label><select id="tHisto"></select></div>
       </div>
     </fieldset>
 
@@ -99,6 +102,11 @@
       <div id="familles" class="grille"></div>
     </fieldset>
 
+    <div class="actions" style="margin:0 0 14px">
+      <button class="neutre" id="btnFermerConfig">Fermer la configuration</button>
+    </div>
+    </div>
+
     <fieldset>
       <legend>Millésimes P2A</legend>
       <p class="aide">Une ligne portant plusieurs millésimes n'apparaît qu'une fois dans la revue.</p>
@@ -118,7 +126,6 @@
     <fieldset>
       <legend>Historique</legend>
       <div class="grille">
-        <div><label for="tHisto">Table d'historique</label><select id="tHisto"></select></div>
         <div><label for="libelleEdition">Nom de l'édition à archiver</label>
           <input type="text" id="libelleEdition" placeholder="Revue de rentrée 2026"></div>
         <div style="align-self:end"><button class="neutre" id="btnArchive">Archiver l'édition</button></div>
@@ -713,13 +720,22 @@ function instantane(c){
   const parValeur = {};
   Object.entries(c.mec.parValeur).forEach(([v, d]) =>
     parValeur[v] = { total:d.total, reste:d.reste, famille:d.famille });
+  // Agrégats de la trame PDF, pour pouvoir tracer l'évolution d'une édition à l'autre.
+  const jp = jeuProjets(c, ["PEPS"], "priorite");
+  const ja = jeuProjets(c, ["AV"], "priorite");
+  const jm = jeuMEC(c);
+  const j2 = jeuP2A(c);
   return {
     annee: c.annee,
-    peps: { stock:c.peps.stock, termines:c.peps.termines.length },
-    av:   { stock:c.av.stock,   termines:c.av.termines.length },
-    mec:  { reco:c.mec.familles.reco, rappel:c.mec.familles.rappel, parValeur },
+    peps: { stock:c.peps.stock, termines:c.peps.termines.length,
+            avancement:jp.global, parCategorie:jp.parCategorie },
+    av:   { stock:c.av.stock,   termines:c.av.termines.length,
+            avancement:ja.global, parCategorie:ja.parCategorie },
+    mec:  { reco:c.mec.familles.reco, rappel:c.mec.familles.rappel, parValeur,
+            avancement:jm.global, parCategorie:jm.parCategorie },
     p2a:  { millesimes:[...(cfg.p2aChoisis || [])].sort(),
-            total:c.p2a.lignes.length, parMillesime:c.p2a.parMillesime }
+            total:c.p2a.lignes.length, parMillesime:c.p2a.parMillesime,
+            avancement:j2.global, parCategorie:j2.parCategorie }
   };
 }
 
@@ -1394,37 +1410,52 @@ async function genere(){
 
 
 /* ================================================================== */
-/* Sortie PDF — mise en page reprise du widget « Revue d'avancement »  */
+/* Sortie PDF — trame du widget « Revue d'avancement »                 */
 /* ================================================================== */
 
 const LOGO_B64 = "data:image/png;base64,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";
 
-const ENCRE_P   = [26,26,24],   GRIS_P    = [102,102,96], ESTOMPE_P = [136,135,128];
-const TRAIT_P   = [221,219,211], FOND_P   = [244,243,238], ROUGE_P   = [192,80,77];
-const VIDE_P    = [201,199,191];
-const VERT_ENCRE = [59,109,17], VERT_FOND = [234,243,222];
-const ROUGE_ENCRE = [153,51,51], ROUGE_FOND = [252,235,235];
+const ENCRE_P = [26,26,24], GRIS_P = [102,102,96], ESTOMPE_P = [136,135,128];
+const TRAIT_P = [221,219,211], FOND_P = [244,243,238], ROUGE_P = [192,80,77];
+const VIDE_P  = [201,199,191];
 
-/* Bandes d'avancement, mêmes teintes que la revue d'avancement. */
-const BANDES = [
-  { cle:"termine",    libelle:"Terminé",    couleur:[155,187, 89], fond:[237,245,224], encre:[ 59,109, 17] },
-  { cle:"en cours",   libelle:"En cours",   couleur:[255,204,  0], fond:[255,248,219], encre:[122, 96,  0] },
-  { cle:"a engager",  libelle:"À engager",  couleur:[192, 80, 77], fond:[251,235,235], encre:[153, 51, 51] },
-  { cle:"interrompu", libelle:"Interrompu", couleur:[ 89, 89, 89], fond:[241,239,232], encre:[102,102, 96] }
+const STATUTS_P = [
+  { cle:"termine",    libelle:"Terminé",    couleur:[155,187, 89],
+    fond:[237,245,224], encre:[ 59,109, 17] },
+  { cle:"en cours",   libelle:"En cours",   couleur:[255,204,  0],
+    fond:[255,248,219], encre:[122, 96,  0] },
+  { cle:"interrompu", libelle:"Interrompu", couleur:[ 89, 89, 89],
+    fond:[241,239,232], encre:[102,102, 96] },
+  { cle:"a engager",  libelle:"À engager",  couleur:[192, 80, 77],
+    fond:[251,235,235], encre:[153, 51, 51] }
 ];
 
-const CAT_COULEURS = [[191,32,111],[128,100,162],[75,172,198],[0,0,145],[120,140,60],[210,140,40]];
+const COLONNES_FOCUS = [
+  { cle:"a engager",  x: 80, l:30, titre:"À engager",  taille:8,   principal:true },
+  { cle:"en cours",   x:112, l:30, titre:"En cours",   taille:8,   principal:true },
+  { cle:"termine",    x:144, l:26, titre:"Terminé",    taille:7.5 },
+  { cle:"interrompu", x:172, l:26, titre:"Interrompu", taille:7.5 }
+];
+
+const CAT_COULEURS = [[191,32,111],[128,100,162],[75,172,198],[0,0,145],
+                      [120,140,60],[210,140,40],[90,90,150],[170,90,60]];
 
 const MARGE_P = 12;
 const droiteDe = doc => doc.internal.pageSize.getWidth() - MARGE_P;
 const basDe    = doc => doc.internal.pageSize.getHeight() - 16;
 
-function bandeDe(avancement, interrompu){
-  if(interrompu) return BANDES[3];
-  if(avancement >= 100) return BANDES[0];
-  if(avancement > 0) return BANDES[1];
-  return BANDES[2];
+const statutParCle = cle => STATUTS_P.find(s => s.cle === cle) || STATUTS_P[3];
+const pourcentPdf = x => (Math.round(x * 1000) / 10).toFixed(1).replace(".", ",") + " %";
+const entierPdf   = x => String(Math.round(x));
+
+function statutDeLigne(avancement, interrompu){
+  if(interrompu) return "interrompu";
+  if(avancement >= 100) return "termine";
+  if(avancement > 0) return "en cours";
+  return "a engager";
 }
+
+/* ---------- Primitives de mise en page ---------- */
 
 function enTetePdf(doc, ctx){
   doc.addImage(LOGO_B64, "PNG", MARGE_P, 8, 30, 19.2);
@@ -1449,6 +1480,10 @@ function nouvelleFeuillePdf(doc, ctx){
   return y;
 }
 
+function assurerPlace(doc, ctx, y, besoin){
+  return (y + besoin > basDe(doc)) ? nouvelleFeuillePdf(doc, ctx) : y;
+}
+
 function piedDePagePdf(doc, ctx){
   const total = doc.getNumberOfPages();
   for(let p = 1; p <= total; p++){
@@ -1467,27 +1502,13 @@ function cadreValeur(doc, x, y, largeur, hauteur, etiquette, valeur, couleur){
   doc.text(valeur, x + largeur / 2, y + 15, { align:"center" });
 }
 
-/* Pastille d'évolution, dans l'esprit du bloc de comparaison du widget d'origine. */
-function badgeEcart(doc, x, y, d, sens){
-  if(d == null) return;
-  const neutre = d === 0 || sens === "neutre";
-  const favorable = sens === "haut" ? d > 0 : d < 0;
-  const fond  = neutre ? FOND_P : (favorable ? VERT_FOND : ROUGE_FOND);
-  const encre = neutre ? GRIS_P : (favorable ? VERT_ENCRE : ROUGE_ENCRE);
-  const texte = d === 0 ? "=" : (d > 0 ? "+" : "") + d;
-  doc.setFillColor(...fond);
-  doc.roundedRect(x, y, 16, 7, 1.2, 1.2, "F");
-  doc.setFontSize(9); doc.setTextColor(...encre);
-  doc.text(texte, x + 8, y + 4.8, { align:"center" });
-}
-
 function legendePdf(doc, x, y, entrees, largeur){
   let ligne = y;
   for(const e of entrees){
     doc.setFillColor(...e.couleur);
     doc.rect(x, ligne - 2.6, 3, 3, "F");
     doc.setFontSize(7.5); doc.setTextColor(61, 61, 58);
-    doc.text(e.libelle, x + 5, ligne);
+    doc.text(doc.splitTextToSize(e.libelle, largeur - 26)[0], x + 5, ligne);
     doc.setTextColor(...GRIS_P);
     doc.text(e.valeur, x + largeur, ligne, { align:"right" });
     ligne += 6.5;
@@ -1519,266 +1540,376 @@ function donut(segments, total){
   return canvas.toDataURL("image/png");
 }
 
-function titreSection(doc, y, texte){
-  doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
-  doc.text(texte, MARGE_P, y);
-  doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
-  doc.line(MARGE_P, y + 1.8, droiteDe(doc), y + 1.8);
-  return y + 8;
+function bulleAvancement(doc, x, y, avancement, statut, l){
+  const s = statutParCle(statut);
+  doc.setFillColor(...s.fond);
+  doc.roundedRect(x, y, l, 5, 1.6, 1.6, "F");
+  doc.setFontSize(7); doc.setTextColor(...s.encre);
+  doc.text(entierPdf(avancement) + " %", x + l / 2, y + 3.5, { align:"center" });
 }
 
-/* Tableau avec report d'en-tête sur les pages suivantes. */
-function tableauPdf(doc, ctx, o){
-  let y = o.y;
-  const cols = o.colonnes;
-  const dessineEntete = () => {
-    doc.setFontSize(7); doc.setTextColor(...GRIS_P);
-    let x = MARGE_P;
-    cols.forEach(c => {
-      doc.text(c.titre, c.align === "right" ? x + c.largeur : x, y,
-               { align:c.align === "right" ? "right" : "left" });
-      x += c.largeur;
-    });
-    doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
-    doc.line(MARGE_P, y + 1.6, droiteDe(doc), y + 1.6);
-    y += 6.5;
-  };
-  dessineEntete();
+/* ---------- Page de synthèse ---------- */
 
-  o.lignes.forEach(ligne => {
-    if(y > basDe(doc)){ y = nouvelleFeuillePdf(doc, ctx); dessineEntete(); }
-    let x = MARGE_P;
-    cols.forEach((c, i) => {
-      const cell = ligne[i];
-      const valeur = (cell && typeof cell === "object") ? cell.texte : String(cell == null ? "" : cell);
-      if(cell && typeof cell === "object" && cell.fond){
-        doc.setFillColor(...cell.fond);
-        doc.roundedRect(x, y - 3.6, c.largeur - 2, 5.2, 1, 1, "F");
-        doc.setTextColor(...(cell.encre || ENCRE_P));
-      }else{
-        doc.setTextColor(...(valeur ? ENCRE_P : VIDE_P));
-      }
-      doc.setFontSize(7.5);
-      const texte = doc.splitTextToSize(valeur || "—", c.largeur - 3)[0];
-      doc.text(texte, c.align === "right" ? x + c.largeur - 3 : x + (cell && cell.fond ? 2 : 0), y,
-               { align:c.align === "right" ? "right" : "left" });
-      x += c.largeur;
-    });
+function pageSynthesePdf(doc, ctx, jeu){
+  let y = enTetePdf(doc, ctx);
+  const droite = droiteDe(doc);
+
+  doc.setFontSize(8); doc.setTextColor(...GRIS_P);
+  doc.text("Avancement global", MARGE_P, y);
+  const teinte = statutParCle(statutDeLigne(jeu.global * 100, false));
+  doc.setFillColor(...teinte.fond);
+  doc.roundedRect(MARGE_P, y + 2, 52, 18, 3, 3, "F");
+  doc.setFontSize(23); doc.setTextColor(...teinte.encre);
+  doc.text(pourcentPdf(jeu.global), MARGE_P + 26, y + 15, { align:"center" });
+
+  if(jeu.evolution){
+    const ecart = (jeu.global - jeu.evolution.globalAvant) * 100;
+    const hausse = ecart >= 0;
+    doc.setFillColor(...(hausse ? [234,243,222] : [252,235,235]));
+    doc.roundedRect(70, y + 6.5, 38, 9, 1.2, 1.2, "F");
+    doc.setFontSize(9); doc.setTextColor(...(hausse ? [59,109,17] : [153,51,51]));
+    doc.text((hausse ? "+ " : "- ") + Math.abs(ecart).toFixed(1).replace(".", ",") + " pts",
+             89, y + 13, { align:"center" });
+    doc.setFontSize(7.5); doc.setTextColor(...ESTOMPE_P);
+    doc.text("vs " + jeu.evolution.libelle + " — " + pourcentPdf(jeu.evolution.globalAvant),
+             MARGE_P, y + 22);
+  }
+
+  let x = MARGE_P;
+  for(const s of STATUTS_P){
+    cadreValeur(doc, x, y + 28, 44, 18, s.libelle, String(jeu.parStatut[s.cle] || 0),
+                s.cle === "en cours" ? [154,122,0] : s.couleur);
+    x += 46.5;
+  }
+
+  doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
+  doc.line(MARGE_P, y + 54, droite, y + 54);
+
+  const haut = y + 64, milieu = 105;
+  doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
+  doc.text("Répartition par statut", MARGE_P, haut);
+  doc.text("Répartition par " + jeu.axe, milieu + 6, haut);
+
+  const segStatut = STATUTS_P.map(s => ({ valeur:jeu.parStatut[s.cle] || 0, couleur:s.couleur }));
+  const segCategorie = jeu.categories.map(c =>
+    ({ valeur:jeu.parCategorie[c.cle] || 0, couleur:c.couleur }));
+  if(jeu.total){
+    doc.addImage(donut(segStatut, jeu.total), "PNG", 41.5, haut + 4, 28, 28);
+    doc.addImage(donut(segCategorie, jeu.totalCategories || jeu.total), "PNG",
+                 140.5, haut + 4, 28, 28);
+  }
+
+  legendePdf(doc, MARGE_P, haut + 42, STATUTS_P.map(s => ({
+    libelle:s.libelle, couleur:s.couleur, valeur:String(jeu.parStatut[s.cle] || 0)
+  })), 87);
+
+  doc.setDrawColor(...TRAIT_P);
+  doc.line(milieu, haut - 6, milieu, haut + 68);
+
+  legendePdf(doc, milieu + 6, haut + 42, jeu.categories.map(c => ({
+    libelle:c.libelle, couleur:c.couleur, valeur:String(jeu.parCategorie[c.cle] || 0)
+  })), 87);
+
+  doc.line(MARGE_P, haut + 74, droite, haut + 74);
+  return blocFocusPdf(doc, ctx, haut + 84, jeu);
+}
+
+function blocFocusPdf(doc, ctx, y, jeu){
+  const entetes = (yy) => {
+    for(const c of COLONNES_FOCUS){
+      doc.setFontSize(c.taille);
+      doc.setTextColor(...(c.principal ? GRIS_P : ESTOMPE_P));
+      doc.text(c.titre, c.x + c.l / 2, yy + 7, { align:"center" });
+    }
+  };
+  doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
+  doc.text("Focus " + jeu.axe + " et statut", MARGE_P, y);
+  entetes(y);
+
+  let ligne = y + 11;
+  const hauteur = 9.5, pas = 11;
+  for(const cat of jeu.categories){
+    if(ligne + hauteur > basDe(doc)){
+      const yy = nouvelleFeuillePdf(doc, ctx);
+      doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
+      doc.text("Focus " + jeu.axe + " et statut (suite)", MARGE_P, yy);
+      entetes(yy);
+      ligne = yy + 11;
+    }
+    doc.setFillColor(...cat.couleur);
+    doc.rect(MARGE_P, ligne + 3.2, 3, 3, "F");
+    doc.setFontSize(7.5); doc.setTextColor(61, 61, 58);
+    doc.text(doc.splitTextToSize(cat.libelle, 60)[0], MARGE_P + 5, ligne + 6.2);
+    for(const c of COLONNES_FOCUS){
+      const s = statutParCle(c.cle);
+      const n = (jeu.croise[cat.cle] || {})[c.cle] || 0;
+      doc.setFillColor(...s.fond);
+      doc.rect(c.x, ligne, c.l, hauteur, "F");
+      doc.setFontSize(c.principal ? 10 : 9);
+      doc.setTextColor(...(n ? s.encre : VIDE_P));
+      doc.text(n ? String(n) : "—", c.x + c.l / 2, ligne + 6.4, { align:"center" });
+    }
+    ligne += pas;
+  }
+  return ligne + 5;
+}
+
+/* ---------- Page d'évolution ---------- */
+
+function pageEvolutionPdf(doc, ctx, jeu, depart){
+  if(!jeu.evolution) return depart;
+  let y = assurerPlace(doc, ctx, depart + 6, 40);
+  const droite = droiteDe(doc);
+
+  doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
+  doc.text("Évolution depuis " + jeu.evolution.libelle, MARGE_P, y);
+  y += 8;
+
+  doc.setFontSize(7); doc.setTextColor(...GRIS_P);
+  doc.text(jeu.axe.charAt(0).toUpperCase() + jeu.axe.slice(1), MARGE_P, y);
+  doc.text("Avant", 120, y, { align:"right" });
+  doc.text("Après", 150, y, { align:"right" });
+  doc.text("Écart", 180, y, { align:"right" });
+  doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
+  doc.line(MARGE_P, y + 1.6, droite, y + 1.6);
+  y += 7;
+
+  for(const cat of jeu.categories){
+    const apres = jeu.parCategorie[cat.cle] || 0;
+    const avant = jeu.evolution.parCategorie ? jeu.evolution.parCategorie[cat.cle] : null;
+    const ecart = avant == null ? null : apres - avant;
+    y = assurerPlace(doc, ctx, y, 10);
+    doc.setFillColor(...cat.couleur);
+    doc.rect(MARGE_P, y - 2.6, 3, 3, "F");
+    doc.setFontSize(7.5); doc.setTextColor(61, 61, 58);
+    doc.text(doc.splitTextToSize(cat.libelle, 90)[0], MARGE_P + 5, y);
+    doc.setTextColor(...ESTOMPE_P);
+    doc.text(avant == null ? "—" : String(avant), 120, y, { align:"right" });
+    doc.setTextColor(...ENCRE_P);
+    doc.text(String(apres), 150, y, { align:"right" });
+    if(ecart != null){
+      doc.setTextColor(...(ecart === 0 ? GRIS_P : (ecart > 0 ? [59,109,17] : [153,51,51])));
+      doc.text(ecart === 0 ? "=" : (ecart > 0 ? "+" : "") + ecart, 180, y, { align:"right" });
+    }
     doc.setDrawColor(237, 235, 228); doc.setLineWidth(0.15);
-    doc.line(MARGE_P, y + 2.2, droiteDe(doc), y + 2.2);
-    y += 6.8;
-  });
+    doc.line(MARGE_P, y + 2.2, droite, y + 2.2);
+    y += 7;
+  }
   return y;
 }
 
-function contextePdf(titre, sousTitre){
-  return { titre, sousTitre, pages:["portrait"] };
+/* ---------- Pages de détail ---------- */
+
+const POIDS = { libelle:3.4, porteur:0.9, groupement:0.9, date:0.8, avancement:0.7 };
+
+function enTeteTableauPdf(doc, colonnes, y){
+  doc.setFontSize(7.5);
+  const hauteur = 7;
+  doc.setFillColor(...FOND_P);
+  doc.rect(MARGE_P, y, droiteDe(doc) - MARGE_P, hauteur, "F");
+  doc.setTextColor(...GRIS_P);
+  colonnes.forEach(c => doc.text(c.titre, c.x, y + 4.6));
+  return y + hauteur + 3;
 }
 
-/* ---------- Revues PEPS et actions à valoriser ---------- */
+function pageDetailPdf(doc, ctx, jeu, depart){
+  let y = assurerPlace(doc, ctx, depart + 6, 40);
+  const droite = droiteDe(doc), bas = basDe(doc);
 
-function compteBandes(b){
+  const champs = jeu.champs;
+  const somme = champs.reduce((a, c) => a + POIDS[c.cle], 0);
+  let curseur = MARGE_P;
+  const colonnes = champs.map(c => {
+    const l = (droite - MARGE_P) * POIDS[c.cle] / somme;
+    const col = { titre:c.titre, cle:c.cle, x:curseur, l:l - 2 };
+    curseur += l;
+    return col;
+  });
+
+  doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
+  doc.text(jeu.titreDetail, MARGE_P, y);
+  y += 8;
+
+  for(const cat of jeu.categories){
+    const membres = jeu.lignes.filter(l => l.categorie === cat.cle);
+    if(!membres.length) continue;
+
+    y = assurerPlace(doc, ctx, y, 34);
+    doc.setFillColor(...cat.couleur);
+    doc.rect(MARGE_P, y - 3.2, 3, 3.6, "F");
+    doc.setFontSize(9); doc.setTextColor(...ENCRE_P);
+    doc.text(cat.libelle + "  (" + membres.length + ")", MARGE_P + 5, y);
+    y += 4;
+    y = enTeteTableauPdf(doc, colonnes, y);
+
+    for(const rang of STATUTS_P){
+      const sous = membres.filter(l => l.statut === rang.cle);
+      if(!sous.length) continue;
+
+      if(y > bas - 20){ y = nouvelleFeuillePdf(doc, ctx); y = enTeteTableauPdf(doc, colonnes, y); }
+      doc.setFillColor(...rang.fond);
+      doc.rect(MARGE_P, y - 0.6, droite - MARGE_P, 5.8, "F");
+      doc.setFontSize(7); doc.setTextColor(...rang.encre);
+      doc.text(rang.libelle + " — " + sous.length, MARGE_P + 2, y + 3.4);
+      y += 8;
+
+      for(const r of sous){
+        doc.setFontSize(7.5);
+        const cellules = colonnes.map(c =>
+          c.cle === "avancement" ? [""] : doc.splitTextToSize(String(r[c.cle] || ""), c.l));
+        const hauteur = Math.max(6, Math.max(...cellules.map(t => t.length)) * 3.4 + 2.2);
+        if(y + hauteur > bas){
+          y = nouvelleFeuillePdf(doc, ctx);
+          y = enTeteTableauPdf(doc, colonnes, y);
+        }
+        colonnes.forEach((c, i) => {
+          if(c.cle === "avancement"){
+            bulleAvancement(doc, c.x, y + 0.4, r.avancement, r.statut, c.l);
+          }else{
+            doc.setTextColor(61, 61, 58);
+            doc.text(cellules[i], c.x, y + 4);
+          }
+        });
+        y += hauteur;
+      }
+      y += 2;
+    }
+    y += 4;
+  }
+  return y;
+}
+
+/* ---------- Constitution du jeu de données par type de revue ---------- */
+
+function categoriesDepuis(valeurs){
+  return valeurs.map((v, i) => ({ cle:v, libelle:v, couleur:CAT_COULEURS[i % CAT_COULEURS.length] }));
+}
+
+function agrege(jeu){
+  jeu.total = jeu.lignes.length;
+  jeu.parStatut = {}; jeu.parCategorie = {}; jeu.croise = {};
+  STATUTS_P.forEach(s => jeu.parStatut[s.cle] = 0);
+  jeu.categories.forEach(c => {
+    jeu.parCategorie[c.cle] = 0;
+    jeu.croise[c.cle] = {};
+    STATUTS_P.forEach(s => jeu.croise[c.cle][s.cle] = 0);
+  });
+  let somme = 0;
+  jeu.lignes.forEach(l => {
+    jeu.parStatut[l.statut] = (jeu.parStatut[l.statut] || 0) + 1;
+    if(jeu.parCategorie[l.categorie] !== undefined){
+      jeu.parCategorie[l.categorie]++;
+      jeu.croise[l.categorie][l.statut]++;
+    }
+    somme += l.avancement;
+  });
+  jeu.global = jeu.total ? somme / (100 * jeu.total) : 0;
+  jeu.totalCategories = Object.values(jeu.parCategorie).reduce((a, b) => a + b, 0);
+  return jeu;
+}
+
+/* Projets et actions : l'axe transverse est la priorité, ou la nature en revue combinée. */
+function jeuProjets(c, natures, axe){
   const frac = detecteFraction(recPEPS, cfg.colAvancement);
-  const compte = { termine:0, "en cours":0, "a engager":0, interrompu:0 };
-  b.stockLignes.forEach(l => {
-    const inter = [cfg.colSuspension, cfg.colAbandon].some(k => k && versDate(l[k]));
-    compte[bandeDe(versPourcent(l[cfg.colAvancement], frac), inter).cle]++;
+  const lignes = [];
+  natures.forEach(n => {
+    const bilan = n === "PEPS" ? c.peps : c.av;
+    bilan.stockLignes.forEach(l => {
+      const inter = [cfg.colSuspension, cfg.colAbandon].some(k => k && versDate(l[k]));
+      const av = versPourcent(l[cfg.colAvancement], frac);
+      lignes.push({
+        libelle: txt(l[cfg.colLibelle]),
+        porteur: txt(l[cfg.colPorteur]),
+        groupement: txt(l[cfg.colGroupement]),
+        avancement: av,
+        statut: statutDeLigne(av, inter),
+        categorie: axe === "nature" ? txt(l[cfg.colNature]).toUpperCase()
+                                    : (txt(l[cfg.colPriorite]) || "Sans priorité")
+      });
+    });
   });
-  return compte;
-}
-
-/* Bloc d'un volet : trois cadres, anneau et légende. Renvoie le y suivant. */
-function blocVolet(doc, c, b, cle, y, tailleDonut){
-  const e = ecarts ? ecarts[cle] : null;
-  const compte = compteBandes(b);
-  const encours = b.stockLignes.length;
-  const largeur = (droiteDe(doc) - MARGE_P - 8) / 3;
-
-  cadreValeur(doc, MARGE_P, y, largeur, 21,
-    "En cours au 01/01/" + c.annee, String(b.stock), ENCRE_P);
-  cadreValeur(doc, MARGE_P + largeur + 4, y, largeur, 21,
-    "Terminés en " + c.annee, String(b.termines.length), VERT_ENCRE);
-  cadreValeur(doc, MARGE_P + 2 * (largeur + 4), y, largeur, 21,
-    "Interrompus", String(compte.interrompu), GRIS_P);
-  if(e){
-    badgeEcart(doc, MARGE_P + largeur - 18, y + 2, e.stock, "neutre");
-    badgeEcart(doc, MARGE_P + 2 * largeur - 14, y + 2, e.termines, "haut");
-  }
-  y += 25;
-
-  const taille = tailleDonut || 44;
-  const segments = BANDES.map(s => ({ libelle:s.libelle, couleur:s.couleur, valeur:compte[s.cle] }));
-  doc.addImage(donut(segments, encours), "PNG", MARGE_P, y, taille, taille);
-  legendePdf(doc, MARGE_P + taille + 10, y + (taille - 20) / 2,
-    segments.map(s => ({ libelle:s.libelle, couleur:s.couleur,
-      valeur:s.valeur + (encours ? "  (" + Math.round(s.valeur / encours * 100) + " %)" : "") })),
-    droiteDe(doc) - MARGE_P - taille - 10);
-  return y + taille + 8;
-}
-
-/* Tableau des projets terminés d'un volet. */
-function tableauTermines(doc, ctx, b, y){
-  if(y > basDe(doc) - 30) y = nouvelleFeuillePdf(doc, ctx);
-  y = titreSection(doc, y, "Terminés dans l'année");
-  if(!b.termines.length){
-    doc.setFontSize(8); doc.setTextColor(...ESTOMPE_P);
-    doc.text("Aucun projet terminé sur la période.", MARGE_P, y);
-    return y + 8;
-  }
-  return tableauPdf(doc, ctx, { y, lignes:b.termines.map(t =>
-      [t.libelle, t.porteur, t.groupement, t.date]),
-    colonnes:[{ titre:"Libellé", largeur:86 }, { titre:"Porteur", largeur:40 },
-              { titre:"Groupement", largeur:36 }, { titre:"Fin", largeur:24, align:"right" }] });
-}
-
-function pdfNature(doc, ctx, c, b, cle){
-  let y = enTetePdf(doc, ctx);
-  y = blocVolet(doc, c, b, cle, y);
-  tableauTermines(doc, ctx, b, y);
-}
-
-/* Revue combinée PEPS + actions à valoriser. */
-function pdfProjets(doc, ctx, c){
-  let y = enTetePdf(doc, ctx);
-
-  y = titreSection(doc, y, "PEPS");
-  y = blocVolet(doc, c, c.peps, "peps", y, 38);
-
-  y = titreSection(doc, y + 4, "Actions à valoriser");
-  y = blocVolet(doc, c, c.av, "av", y, 38);
-
-  y = nouvelleFeuillePdf(doc, ctx);
-  y = titreSection(doc, y, "PEPS — terminés dans l'année");
-  y = tableauTerminesSimple(doc, ctx, c.peps, y);
-
-  if(y > basDe(doc) - 30) y = nouvelleFeuillePdf(doc, ctx);
-  y = titreSection(doc, y + 6, "Actions à valoriser — terminées dans l'année");
-  tableauTerminesSimple(doc, ctx, c.av, y);
-}
-
-/* Même tableau, sans son propre titre de section. */
-function tableauTerminesSimple(doc, ctx, b, y){
-  if(!b.termines.length){
-    doc.setFontSize(8); doc.setTextColor(...ESTOMPE_P);
-    doc.text("Aucun projet terminé sur la période.", MARGE_P, y);
-    return y + 8;
-  }
-  return tableauPdf(doc, ctx, { y, lignes:b.termines.map(t =>
-      [t.libelle, t.porteur, t.groupement, t.date]),
-    colonnes:[{ titre:"Libellé", largeur:86 }, { titre:"Porteur", largeur:40 },
-              { titre:"Groupement", largeur:36 }, { titre:"Fin", largeur:24, align:"right" }] });
-}
-
-/* ---------- Revue MEC ---------- */
-
-function pdfMEC(doc, ctx, c){
-  let y = enTetePdf(doc, ctx);
-  const m = c.mec, em = ecarts ? ecarts.mec : null;
-  const largeur = (droiteDe(doc) - MARGE_P - 8) / 3;
-  const total = m.familles.reco.total + m.familles.rappel.total;
-  const reste = m.familles.reco.reste + m.familles.rappel.reste;
-
-  cadreValeur(doc, MARGE_P, y, largeur, 21, "Recommandations",
-    String(m.familles.reco.total), ENCRE_P);
-  cadreValeur(doc, MARGE_P + largeur + 4, y, largeur, 21, "Rappels au droit",
-    String(m.familles.rappel.total), ENCRE_P);
-  cadreValeur(doc, MARGE_P + 2 * (largeur + 4), y, largeur, 21, "En cours de réalisation",
-    String(reste), reste ? ROUGE_ENCRE : VERT_ENCRE);
-  if(em){
-    badgeEcart(doc, MARGE_P + largeur - 18, y + 2, em.recoTotal, "neutre");
-    badgeEcart(doc, MARGE_P + 2 * largeur - 14, y + 2, em.rappelTotal, "neutre");
-    badgeEcart(doc, MARGE_P + 3 * largeur - 10, y + 2,
-      em.recoReste == null || em.rappelReste == null ? null : em.recoReste + em.rappelReste, "bas");
-  }
-  y += 29;
-
-  y = titreSection(doc, y, "Répartition par catégorie");
-  const cats = Object.entries(m.parValeur).map(([v, d], i) =>
-    ({ libelle:v, couleur:CAT_COULEURS[i % CAT_COULEURS.length], valeur:d.total }));
-  doc.addImage(donut(cats, total), "PNG", MARGE_P, y, 44, 44);
-  legendePdf(doc, MARGE_P + 54, y + 8,
-    cats.map(s => ({ libelle:s.libelle, couleur:s.couleur, valeur:String(s.valeur) })),
-    droiteDe(doc) - MARGE_P - 54);
-  y += 52;
-
-  y = titreSection(doc, y, "Détail par catégorie");
-  y = tableauPdf(doc, ctx, { y,
-    colonnes:[{ titre:"Catégorie", largeur:74 }, { titre:"Famille", largeur:44 },
-              { titre:"Total", largeur:24, align:"right" },
-              { titre:"En cours", largeur:22, align:"right" },
-              { titre:"Écart", largeur:22, align:"right" }],
-    lignes:Object.entries(m.parValeur).map(([v, d]) => {
-      const ev = em && em.parValeur[v] ? em.parValeur[v] : null;
-      return [v, d.famille === "reco" ? "Recommandation" : "Rappel au droit",
-              String(d.total), String(d.reste),
-              ev && ev.reste != null ? (ev.reste > 0 ? "+" : "") + ev.reste : ""];
-    }) });
-
-  if(m.resteListe.length){
-    y = titreSection(doc, y + 6, "En cours de réalisation");
-    tableauPdf(doc, ctx, { y,
-      colonnes:[{ titre:"Libellé", largeur:88 }, { titre:"Catégorie", largeur:48 },
-                { titre:"Porteur", largeur:30 },
-                { titre:"Avancement", largeur:20, align:"right" }],
-      lignes:m.resteListe.map(r => {
-        const bande = bandeDe(r.avancement, false);
-        return [r.libelle, r.type, r.porteur,
-                { texte:r.avancement + " %", fond:bande.fond, encre:bande.encre }];
-      }) });
-  }
-}
-
-/* ---------- Revue P2A ---------- */
-
-function pdfP2A(doc, ctx, c){
-  let y = enTetePdf(doc, ctx);
-  const p = c.p2a, ep = ecarts ? ecarts.p2a : null;
-
-  if(!p.lignes.length){
-    doc.setFontSize(8); doc.setTextColor(...ESTOMPE_P);
-    doc.text("Aucune ligne ne porte les millésimes sélectionnés.", MARGE_P, y);
-    return;
-  }
-
-  const compte = { termine:0, "en cours":0, "a engager":0, interrompu:0 };
-  p.lignes.forEach(l => compte[bandeDe(l.avancement, l.interrompu).cle]++);
-
-  const millesimes = Object.entries(p.parMillesime);
-  const nb = Math.min(millesimes.length + 1, 4);
-  const largeur = (droiteDe(doc) - MARGE_P - 4 * (nb - 1)) / nb;
-  cadreValeur(doc, MARGE_P, y, largeur, 21, "Projets et actions", String(p.lignes.length), ENCRE_P);
-  if(ep && ep.comparable) badgeEcart(doc, MARGE_P + largeur - 18, y + 2, ep.total, "neutre");
-  millesimes.slice(0, nb - 1).forEach(([m, n], i) => {
-    const x = MARGE_P + (i + 1) * (largeur + 4);
-    cadreValeur(doc, x, y, largeur, 21, m, String(n), ENCRE_P);
-    if(ep && ep.parMillesime[m] != null)
-      badgeEcart(doc, x + largeur - 18, y + 2, ep.parMillesime[m], "neutre");
+  const valeurs = [...new Set(lignes.map(l => l.categorie))].sort();
+  return agrege({
+    axe: axe === "nature" ? "nature" : "priorité",
+    categories: categoriesDepuis(valeurs),
+    lignes,
+    titreDetail: "Détail des projets et actions",
+    champs:[{ cle:"libelle", titre:"Projet ou action" }, { cle:"porteur", titre:"Porteur" },
+            { cle:"groupement", titre:"Groupement" }, { cle:"avancement", titre:"Avct" }]
   });
-  y += 29;
+}
 
-  if(ep && ep.message){
-    doc.setFontSize(7.5); doc.setTextColor(...ROUGE_ENCRE);
-    doc.text(ep.message, MARGE_P, y); y += 7;
-  }
+function jeuMEC(c){
+  const frac = detecteFraction(recMEC, cfg.mecAvancement);
+  const lignes = [];
+  recMEC.forEach(l => {
+    const v = txt(l[cfg.mecType]) || "(non renseigné)";
+    if((cfg.familles && cfg.familles[v]) === "hors") return;
+    const av = versPourcent(l[cfg.mecAvancement], frac);
+    lignes.push({
+      libelle: txt(l[cfg.mecLibelle]),
+      porteur: txt(l[cfg.mecPorteur]),
+      groupement: "",
+      avancement: av,
+      statut: statutDeLigne(av, estInterrompu(l)),
+      categorie: v
+    });
+  });
+  const valeurs = [...new Set(lignes.map(l => l.categorie))].sort();
+  return agrege({
+    axe: "catégorie",
+    categories: categoriesDepuis(valeurs),
+    lignes,
+    titreDetail: "Détail des recommandations et rappels au droit",
+    champs:[{ cle:"libelle", titre:"Recommandation" }, { cle:"porteur", titre:"Porteur" },
+            { cle:"avancement", titre:"Avct" }]
+  });
+}
 
-  y = titreSection(doc, y, "Répartition par avancement");
-  const segments = BANDES.map(s => ({ libelle:s.libelle, couleur:s.couleur, valeur:compte[s.cle] }));
-  doc.addImage(donut(segments, p.lignes.length), "PNG", MARGE_P, y, 44, 44);
-  legendePdf(doc, MARGE_P + 54, y + 10,
-    segments.map(s => ({ libelle:s.libelle, couleur:s.couleur, valeur:String(s.valeur) })),
-    droiteDe(doc) - MARGE_P - 54);
-  y += 52;
+/* P2A : une ligne portant plusieurs millésimes est comptée dans chacun d'eux
+   pour la répartition, mais n'apparaît qu'une fois dans le détail. */
+function jeuP2A(c){
+  const lignes = c.p2a.lignes.map(l => ({
+    libelle: l.libelle,
+    porteur: l.porteur,
+    groupement: "",
+    avancement: l.avancement,
+    statut: statutDeLigne(l.avancement, l.interrompu),
+    categorie: l.millesimes.split(" · ")[0],
+    millesimes: l.millesimes.split(" · ")
+  }));
+  const valeurs = [...(cfg.p2aChoisis || [])].sort();
+  const jeu = agrege({
+    axe: "millésime",
+    categories: categoriesDepuis(valeurs),
+    lignes,
+    titreDetail: "Détail des projets et actions P2A",
+    champs:[{ cle:"libelle", titre:"Projet ou action" }, { cle:"porteur", titre:"Porteur" },
+            { cle:"avancement", titre:"Avct" }]
+  });
+  // Recomptage par millésime : chaque ligne compte dans tous ses millésimes.
+  valeurs.forEach(v => { jeu.parCategorie[v] = 0; STATUTS_P.forEach(s => jeu.croise[v][s.cle] = 0); });
+  lignes.forEach(l => l.millesimes.forEach(m => {
+    if(jeu.parCategorie[m] === undefined) return;
+    jeu.parCategorie[m]++;
+    jeu.croise[m][l.statut]++;
+  }));
+  jeu.totalCategories = Object.values(jeu.parCategorie).reduce((a, b) => a + b, 0);
+  return jeu;
+}
 
-  y = titreSection(doc, y, "Projets et actions retenus");
-  tableauPdf(doc, ctx, { y,
-    colonnes:[{ titre:"Millésimes", largeur:30 }, { titre:"Nature", largeur:18 },
-              { titre:"Libellé", largeur:80 }, { titre:"Porteur", largeur:38 },
-              { titre:"Avanc.", largeur:20, align:"right" }],
-    lignes:p.lignes.map(l => {
-      const bande = bandeDe(l.avancement, l.interrompu);
-      return [l.millesimes, l.nature, l.libelle, l.porteur,
-              { texte:l.avancement + " %", fond:bande.fond, encre:bande.encre }];
-    }) });
+/* Reprend l'avancement global et la répartition de l'édition de référence. */
+function evolutionDe(jeu, cleBilan){
+  if(!ecarts) return null;
+  const ref = editionChoisie($("revB").value);
+  if(!ref || !ref.donnees) return null;
+  const bloc = ref.donnees[cleBilan];
+  if(!bloc || bloc.avancement == null) return null;
+  return {
+    libelle: ecarts.libelleB,
+    globalAvant: bloc.avancement,
+    parCategorie: bloc.parCategorie || null
+  };
 }
 
 async function generePDF(type){
@@ -1787,25 +1918,44 @@ async function generePDF(type){
     return;
   }
   const c = calcul;
-  const sousTitre = "Édition du " + jjmmaaaa(new Date()) +
-    (ecarts ? " — comparaison : " + ecarts.libelleA + " / " + ecarts.libelleB : "");
-  const ctx = contextePdf(type.nom + " — " + c.annee, sousTitre);
+  let jeu, cleBilan;
+  if(type.id === "mec"){ jeu = jeuMEC(c); cleBilan = "mec"; }
+  else if(type.id === "p2a"){ jeu = jeuP2A(c); cleBilan = "p2a"; }
+  else if(type.id === "projets"){ jeu = jeuProjets(c, ["PEPS", "AV"], "nature"); cleBilan = "peps"; }
+  else if(type.id === "peps"){ jeu = jeuProjets(c, ["PEPS"], "priorite"); cleBilan = "peps"; }
+  else{ jeu = jeuProjets(c, ["AV"], "priorite"); cleBilan = "av"; }
+  jeu.evolution = evolutionDe(jeu, cleBilan);
+
+  const n = jeu.total;
+  const ctx = {
+    titre: type.nom + " — " + c.annee,
+    sousTitre: "Édition du " + jjmmaaaa(new Date()) + " — " + n + " ligne" + (n > 1 ? "s" : ""),
+    pages: ["portrait"]
+  };
   const doc = new window.jspdf.jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
 
-  if(type.id === "mec") pdfMEC(doc, ctx, c);
-  else if(type.id === "p2a") pdfP2A(doc, ctx, c);
-  else if(type.id === "projets") pdfProjets(doc, ctx, c);
-  else if(type.id === "peps") pdfNature(doc, ctx, c, c.peps, "peps");
-  else if(type.id === "av") pdfNature(doc, ctx, c, c.av, "av");
+  let y = pageSynthesePdf(doc, ctx, jeu);
+  y = pageEvolutionPdf(doc, ctx, jeu, y);
+  pageDetailPdf(doc, ctx, jeu, y);
 
   piedDePagePdf(doc, ctx);
   doc.save(type.fichier + "_" + c.annee + ".pdf");
   alerte("PDF créé : " + doc.getNumberOfPages() + " page(s).", true);
 }
 
+
 /* ------------------------------------------------------------------ */
 /* Démarrage                                                           */
 /* ------------------------------------------------------------------ */
+
+/* Grist affiche « Ouvrir la configuration » dans le panneau latéral droit
+   dès qu'un rappel onEditOptions est fourni. */
+function ouvrirConfiguration(){
+  onglet("conf");
+  const bloc = $("blocConfig");
+  bloc.hidden = false;
+  bloc.scrollIntoView({ block:"start", behavior:"smooth" });
+}
 
 function onglet(actif){
   $("ongletConf").setAttribute("aria-selected", actif === "conf");
@@ -1815,6 +1965,7 @@ function onglet(actif){
 }
 
 $("ongletConf").addEventListener("click", () => onglet("conf"));
+$("btnFermerConfig").addEventListener("click", () => { $("blocConfig").hidden = true; });
 $("ongletGen").addEventListener("click", () => { onglet("gen"); recalcule(); });
 $("btnGen").addEventListener("click", () => genere().catch(e => alerte("Échec : " + e.message)));
 $("btnRecharge").addEventListener("click", () =>
@@ -1837,7 +1988,7 @@ $("intercalaires").addEventListener("change", () => {
 
 async function demarre(){
   try{
-    await grist.ready({ requiredAccess:"full" });
+    await grist.ready({ requiredAccess:"full", onEditOptions: ouvrirConfiguration });
     cfg = (await grist.widgetApi.getOptions()) || {};
     $("annee").value = cfg.annee || new Date().getFullYear();
     if(cfg.intercalaires === undefined) cfg.intercalaires = true;
