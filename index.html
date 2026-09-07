@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-24</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-27</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1432,14 +1432,27 @@ function pageMEC(doc, c){
   const sousTitre = "Situation au " + jjmmaaaa(new Date()) +
                     (ecarts ? " — " + sousTitreComparaison() : "");
   const page = nouvellePage(doc, "MEC 2023", sousTitre);
-  const largeur = (LARG - 0.8) / 3;
+  const largeur = (LARG - 1.2) / 4;
   const reste = m.familles.reco.reste + m.familles.rappel.reste;
 
-  cartouche(doc, page, MARGE, largeur, m.familles.reco.total,
+  // Avancement global, calculé sur les mêmes lignes que la matrice.
+  const jeu = jeuMEC(c);
+  const global = Math.round(jeu.global * 100);
+  // Écart avec l'édition de référence, exprimé en points.
+  let ecartPts = null;
+  if(ecarts){
+    const ref = editionChoisie($("revB").value);
+    const avant = ref && ref.donnees && ref.donnees.mec ? ref.donnees.mec.avancement : null;
+    if(avant != null) ecartPts = Math.round(jeu.global * 100) - Math.round(avant * 100);
+  }
+
+  cartouche(doc, page, MARGE, largeur, global + " %",
+            "d'avancement global", encreAvancement(global, false), ecartPts, "haut");
+  cartouche(doc, page, MARGE + largeur + 0.4, largeur, m.familles.reco.total,
             "recommandations", "#C0504D", em ? em.recoTotal : null, "neutre");
-  cartouche(doc, page, MARGE + largeur + 0.4, largeur, m.familles.rappel.total,
+  cartouche(doc, page, MARGE + 2 * (largeur + 0.4), largeur, m.familles.rappel.total,
             "rappels au droit", "#7f6f6c", em ? em.rappelTotal : null, "neutre");
-  cartouche(doc, page, MARGE + 2 * (largeur + 0.4), largeur, reste,
+  cartouche(doc, page, MARGE + 3 * (largeur + 0.4), largeur, reste,
             "en cours de réalisation", "#F79646",
             em && em.recoReste != null && em.rappelReste != null
               ? em.recoReste + em.rappelReste : null, "bas");
@@ -1457,7 +1470,6 @@ function pageMEC(doc, c){
   // Matrice catégorie x statut, comme le bloc focus des PDF, aux teintes du diaporama.
   // Ordre imposé : recommandation majeure, rappel au droit principal,
   // puis recommandation et rappel au droit.
-  const jeu = jeuMEC(c);
   const rang = cat => {
     const famille = (cfg.familles && cfg.familles[cat.cle]) || "reco";
     return (/majeur|principal/.test(cat.libelle.toLowerCase()) ? 0 : 2) +
@@ -1810,7 +1822,10 @@ function blocFocusPdf(doc, ctx, y, jeu){
 
   let ligne = y + 11;
   let page = doc.internal.getNumberOfPages();
-  const hauteur = 9.5, pas = 11;
+  // La hauteur de ligne se resserre pour que le bloc tienne sur la page de synthèse.
+  const place = basDe(doc) - (y + 11);
+  const pas = Math.max(6.4, Math.min(11, place / Math.max(1, jeu.categories.length)));
+  const hauteur = pas - 1.5;
   for(const cat of jeu.categories){
     if(ligne + hauteur > basDe(doc)){
       const yy = nouvelleFeuillePdf(doc, ctx);
@@ -1822,17 +1837,17 @@ function blocFocusPdf(doc, ctx, y, jeu){
     }
     zones.push({ cle:cat.cle, statut:null, page, x:MARGE_P, y:ligne, l:66, h:hauteur });
     doc.setFillColor(...cat.couleur);
-    doc.rect(MARGE_P, ligne + 3.2, 3, 3, "F");
+    doc.rect(MARGE_P, ligne + hauteur / 2 - 1.5, 3, 3, "F");
     doc.setFontSize(7.5); doc.setTextColor(61, 61, 58);
-    doc.text(doc.splitTextToSize(cat.libelle, 60)[0], MARGE_P + 5, ligne + 6.2);
+    doc.text(doc.splitTextToSize(cat.libelle, 60)[0], MARGE_P + 5, ligne + hauteur / 2 + 1.2);
     for(const c of COLONNES_FOCUS){
       const s = statutParCle(c.cle);
       const n = (jeu.croise[cat.cle] || {})[c.cle] || 0;
       doc.setFillColor(...s.fond);
       doc.rect(c.x, ligne, c.l, hauteur, "F");
-      doc.setFontSize(c.principal ? 10 : 9);
+      doc.setFontSize(pas < 9 ? 8.5 : (c.principal ? 10 : 9));
       doc.setTextColor(...(n ? s.encre : VIDE_P));
-      doc.text(n ? String(n) : "—", c.x + c.l / 2, ligne + 6.4, { align:"center" });
+      doc.text(n ? String(n) : "—", c.x + c.l / 2, ligne + hauteur / 2 + 1.4, { align:"center" });
       if(n) zones.push({ cle:cat.cle, statut:c.cle, page, x:c.x, y:ligne, l:c.l, h:hauteur });
     }
     ligne += pas;
@@ -1908,6 +1923,39 @@ function champsDetail(type){
 
 /* Le détail ouvre toujours une nouvelle page : le sommaire vient s'insérer
    juste avant, il ne doit donc pas couper un bloc déjà commencé. */
+/* Découpe une valeur de cellule en lignes qui tiennent toutes dans la colonne.
+   Le texte des commentaires vient de Grist : il peut contenir des retours à la
+   ligne, des tabulations et des mots plus longs que la colonne. */
+function lignesCellule(doc, valeur, largeur, maxLignes){
+  const propre = String(valeur == null ? "" : valeur)
+    .replace(/\r\n?/g, "\n").replace(/\t/g, " ").replace(/[ \u00a0]+/g, " ");
+  let lignes = [];
+  for(const segment of propre.split("\n")){
+    if(lignes.length >= maxLignes) break;
+    const morceaux = doc.splitTextToSize(segment.trim(), largeur);
+    for(const morceau of morceaux){
+      if(lignes.length >= maxLignes) break;
+      lignes.push(morceau);
+    }
+  }
+  // Filet de sécurité : aucune ligne ne doit dépasser la largeur de la colonne.
+  lignes = lignes.map(t => {
+    let s = t;
+    while(s.length > 1 && doc.getTextWidth(s) > largeur) s = s.slice(0, -2) + "…";
+    return s;
+  });
+  const complet = propre.trim();
+  if(complet && lignes.join(" ").replace(/…/g, "").length < complet.replace(/\s+/g, " ").length - 1){
+    const i = lignes.length - 1;
+    if(i >= 0 && !/…$/.test(lignes[i])){
+      let s = lignes[i] + " …";
+      while(s.length > 1 && doc.getTextWidth(s) > largeur) s = s.slice(0, -2) + "…";
+      lignes[i] = s;
+    }
+  }
+  return lignes.length ? lignes : [""];
+}
+
 function pageDetailPdf(doc, ctx, jeu){
   let y = nouvelleFeuillePdf(doc, ctx);
   const droite = droiteDe(doc), bas = basDe(doc);
@@ -1953,8 +2001,8 @@ function pageDetailPdf(doc, ctx, jeu){
 
       for(const r of sous){
         doc.setFontSize(7.5);
-        const cellules = colonnes.map(c =>
-          c.cle === "avancement" ? [""] : doc.splitTextToSize(String(r[c.cle] || ""), c.l));
+        const cellules = colonnes.map(c => c.cle === "avancement" ? [""]
+          : lignesCellule(doc, r[c.cle], c.l, c.cle === "commentaire" ? 8 : 3));
         const hauteur = Math.max(6, Math.max(...cellules.map(t => t.length)) * 3.4 + 2.2);
         if(y + hauteur > bas) y = nouvelleFeuillePdf(doc, ctx);
         ancres.set("ligne:" + r.id,
@@ -2008,10 +2056,7 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
     for(const r of membres){
       if(y > bas - 6) y = nouvelleFeuillePdf(doc, ctx);
       doc.setFontSize(7.5);
-      const morceaux = doc.splitTextToSize(String(r.libelle || ""), largeurTexte);
-      const texte = morceaux.length > 1
-        ? morceaux[0].replace(/\s+\S*$/, "") + "…"
-        : morceaux[0];
+      const texte = lignesCellule(doc, r.libelle, largeurTexte, 1)[0];
       doc.setTextColor(61, 61, 58);
       doc.text(texte || "—", MARGE_P + 5, y);
       const s = statutParCle(r.statut);
@@ -2101,7 +2146,12 @@ function jeuProjets(c, natures){
     });
   });
   const priorites = [...new Set(lignes.map(l => l.priorite))].sort((a, b) => a.localeCompare(b, "fr"));
-  const valeurs = [...new Set(lignes.map(l => l.categorie))].sort((a, b) => a.localeCompare(b, "fr"));
+  // Priorité croissante, puis PEPS avant AV à l'intérieur de chaque priorité.
+  const rangNature = n => (n === "PEPS" ? 0 : (n === "AV" ? 1 : 2));
+  const valeurs = [...new Set(lignes.map(l => l.categorie))].sort((a, b) => {
+    const [pa, na] = a.split(" · "), [pb, nb] = b.split(" · ");
+    return pa.localeCompare(pb, "fr") || rangNature(na) - rangNature(nb);
+  });
 
   // Une couleur par priorité, réutilisée pour les combinaisons priorité + nature.
   const teinte = {};
