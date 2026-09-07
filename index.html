@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-20</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-21</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1449,29 +1449,37 @@ function pageMEC(doc, c){
   ], "État d'avancement");
   image(doc, page, { x:MARGE, y:Y_CONTENU, w:9.8, h:6.1, base64:png });
 
+  // Matrice catégorie x statut, comme le bloc focus des PDF, aux teintes du diaporama.
   // Ordre imposé : recommandation majeure, rappel au droit principal,
   // puis recommandation et rappel au droit.
-  const rang = ([v, d]) => {
-    const t = v.toLowerCase();
-    const grave = /majeur|principal/.test(t) ? 0 : 2;
-    return grave + (d.famille === "rappel" ? 1 : 0);
+  const jeu = jeuMEC(c);
+  const rang = cat => {
+    const famille = (cfg.familles && cfg.familles[cat.cle]) || "reco";
+    return (/majeur|principal/.test(cat.libelle.toLowerCase()) ? 0 : 2) +
+           (famille === "rappel" ? 1 : 0);
   };
-  const detail = Object.entries(m.parValeur)
-    .sort((a, b) => rang(a) - rang(b) || a[0].localeCompare(b[0], "fr"))
-    .map(([v, d]) => {
-    const ev = em && em.parValeur[v] ? em.parValeur[v] : null;
-    return [
-      v,
-      d.famille === "reco" ? "Recommandation" : "Rappel au droit",
-      String(d.total),
-      { texte:String(d.reste), gras:true, couleur: d.reste ? "#C0504D" : "#4e6b28" },
-      { texte:ev ? formateEcart(ev.reste) : "", couleur:couleurEcart(ev ? ev.reste : null, "bas") }
-    ];
+  const categories = [...jeu.categories]
+    .sort((a, b) => rang(a) - rang(b) || a.libelle.localeCompare(b.libelle, "fr"));
+
+  const teintes = {
+    "a engager":  { fond:"#fbebeb", couleur:"#993333" },
+    "en cours":   { fond:"#fff8db", couleur:"#7a6000" },
+    "termine":    { fond:"#edf5e0", couleur:"#3b6d11" },
+    "interrompu": { fond:"#f1efe8", couleur:"#666660" }
+  };
+  const ordre = ["a engager", "en cours", "termine", "interrompu"];
+  const matrice = categories.map(cat => {
+    const l = jeu.croise[cat.cle] || {};
+    const total = ordre.reduce((s, k) => s + (l[k] || 0), 0);
+    return [cat.libelle + "  (" + total + ")"].concat(ordre.map(k =>
+      Object.assign({ texte: l[k] ? String(l[k]) : "—" }, teintes[k])));
   });
+
   tableauPagine(doc, { page, x:MARGE + 10.4, y:Y_CONTENU,
-    largeurs:[5.2, 4.2, 1.8, 1.9, 1.7],
-    entetes:["Catégorie", "Famille", "Total", "En cours", "Écart"],
-    titreSuite:null, lignes:detail });
+    largeurs:[5.6, 2.3, 2.3, 2.3, 2.3],
+    entetes:["Catégorie", "À engager", "En cours", "Terminé", "Interrompu"],
+    alignes:["start", "center", "center", "center", "center"],
+    titreSuite:null, lignes:matrice });
 
   if(m.resteListe.length){
     const suite = nouvellePage(doc, "MEC 2023 — en cours de réalisation", null);
