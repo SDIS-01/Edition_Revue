@@ -52,6 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-5</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -117,7 +118,7 @@
       <legend>Diapositives</legend>
       <div class="cases" id="diapos"></div>
       <div class="cases" style="margin-top:6px">
-        <label><input type="checkbox" id="intercalaires" checked>
+        <label><input type="checkbox" id="intercalaires">
           Insérer une diapositive d'intercalaire avant chaque partie</label>
       </div>
       <p class="aide">Modifier une case bascule le type sur « Sélection libre ».</p>
@@ -622,17 +623,35 @@ function bilanNature(nature, jan1, finAnnee, fraction){
     return f && f >= jan1 && f <= finAnnee;
   }).sort((a, b) => versDate(a[cfg.colFin]) - versDate(b[cfg.colFin]));
 
+  // Lignes suspendues ou abandonnées au cours de l'année de référence.
+  const dateArret = l => {
+    const s = cfg.colSuspension ? versDate(l[cfg.colSuspension]) : null;
+    const a = cfg.colAbandon ? versDate(l[cfg.colAbandon]) : null;
+    if(s && a) return s < a ? s : a;
+    return s || a;
+  };
+  const interrompus = lignes.filter(l => {
+    const d = dateArret(l);
+    return d && d >= jan1 && d <= finAnnee;
+  }).sort((a, b) => dateArret(a) - dateArret(b));
+
+  const decrit = l => ({
+    libelle: txt(l[cfg.colLibelle]),
+    porteur: txt(l[cfg.colPorteur]),
+    groupement: txt(l[cfg.colGroupement]),
+    priorite: txt(l[cfg.colPriorite]) || "—",
+    avancement: versPourcent(l[cfg.colAvancement], fraction)
+  });
+
   return {
     nature,
     stock: stock.length,
     stockLignes: stock,
-    termines: termines.map(l => ({
-      libelle: txt(l[cfg.colLibelle]),
-      porteur: txt(l[cfg.colPorteur]),
-      groupement: txt(l[cfg.colGroupement]),
-      date: jjmmaaaa(versDate(l[cfg.colFin])),
-      avancement: versPourcent(l[cfg.colAvancement], fraction)
-    }))
+    termines: termines.map(l => Object.assign(decrit(l),
+      { date: jjmmaaaa(versDate(l[cfg.colFin])) })),
+    interrompus: interrompus.map(l => Object.assign(decrit(l),
+      { date: jjmmaaaa(dateArret(l)),
+        motif: (cfg.colAbandon && versDate(l[cfg.colAbandon])) ? "Abandon" : "Suspension" }))
   };
 }
 
@@ -964,10 +983,12 @@ const MODELE_OTP = "UEsDBBQAAAgAACdcJ13vDBQ6OAAAADgAAAAIAAAAbWltZXR5cGVhcHBsaWNh
 /* Géométrie reprise du modèle : page 28 × 21, cadres de titre à x = 1,4 sur 25,2 cm. */
 const L = 28, H = 21;
 const MARGE = 1.4, LARG = 25.2;
-const Y_KPI = 3.6;        // bande libre entre le titre et le filet du modèle
-const H_KPI = 1.85;
-const Y_CONTENU = 6.9;    // sous le filet
-const Y_MAX = 17.4;       // au-dessus du bandeau bas
+const Y_TITRE = 3.25;     // titre ramené juste sous le bandeau haut
+const Y_SOUS = 4.8;       // ligne de sous-titre
+const Y_KPI = 5.5;        // chiffres clés
+const H_KPI = 1.8;
+const Y_CONTENU = 7.6;    // tableaux et graphiques
+const Y_MAX = 19.7;       // bas de page utile
 
 let modele = null;        // morceaux extraits du modèle, chargés une fois
 
@@ -1060,7 +1081,18 @@ function image(doc, page, o){
 function nouvellePage(doc, titre, sousTitre){
   const page = { type:"contenu", titre, sousTitre, frames:[] };
   doc.pages.push(page);
+  if(sousTitre){
+    bloc(doc, page, { x:MARGE, y:Y_SOUS, w:LARG, h:0.6, texte:sousTitre,
+                      taille:10, couleur:"#6F6862", align:"center" });
+  }
   return page;
+}
+
+/* Titre de rubrique à l'intérieur d'une diapositive. */
+function section(doc, page, y, texte){
+  bloc(doc, page, { x:MARGE, y, w:LARG, h:0.7, texte,
+                    taille:13, gras:true, couleur:"#C0504D", vertical:"bottom" });
+  return y + 0.85;
 }
 
 function pageCouverture(doc, texte){
@@ -1091,18 +1123,16 @@ function pageXML(page, numero){
       '<text:span text:style-name="T2">Titre du Chapitre</text:span>',
       '<text:span text:style-name="T2">' + esc(page.titre) + "</text:span>");
   }else{
-    xml = modele.contenu;
-    // Titre : on remplit le cadre placeholder du modèle.
-    xml = xml.replace(' presentation:placeholder="true"', "");
-    xml = xml.replace("<draw:text-box/>",
-      "<draw:text-box><text:p>" +
-      '<text:span text:style-name="T2">' + esc(page.titre) + "</text:span></text:p></draw:text-box>");
-    // Filet de sous-titre : renseigné, ou retiré s'il n'y a rien à y mettre.
-    if(page.sousTitre){
-      xml = xml.replace('<text:span text:style-name="T3">Texte</text:span>',
-        '<text:span text:style-name="T3">' + esc(page.sousTitre) + "</text:span>");
+    // Page de contenu : gabarit à bandeau haut, titre remonté sous le bandeau.
+    xml = modele.intercalaire;
+    if(page.titre){
+      xml = xml.replace('svg:height="2.706cm" svg:x="1.4cm" svg:y="5.894cm"',
+                        'svg:height="1.5cm" svg:x="1.4cm" svg:y="' + Y_TITRE + 'cm"');
+      xml = xml.replace('<text:span text:style-name="T2">Titre du Chapitre</text:span>',
+                        '<text:span text:style-name="T2">' + esc(page.titre) + "</text:span>");
     }else{
-      xml = xml.replace(/<draw:frame draw:style-name="gr4"[\s\S]*?<\/draw:frame>/, "");
+      // Diapositive de suite : le bandeau reste, le titre n'est pas répété.
+      xml = xml.replace(/<draw:frame presentation:style-name="pr3"[\s\S]*?<\/draw:frame>/, "");
     }
     if(page.frames.length){
       xml = xml.replace("<presentation:notes", page.frames.join("") + "<presentation:notes");
@@ -1135,13 +1165,13 @@ function manifestXML(images){
 
 function camembert(parts, titre){
   const cv = document.createElement("canvas");
-  cv.width = 900; cv.height = 560;
+  cv.width = 1100; cv.height = 620;
   const g = cv.getContext("2d");
   g.fillStyle = "#ffffff"; g.fillRect(0, 0, cv.width, cv.height);
   const total = parts.reduce((s, p) => s + p.valeur, 0);
   if(!total) return cv.toDataURL("image/png").split(",")[1];
 
-  const cx = 270, cy = 300, r = 185;
+  const cx = 210, cy = 330, r = 175;
   let a = -Math.PI / 2;
   parts.forEach(p => {
     const ang = (p.valeur / total) * Math.PI * 2;
@@ -1154,12 +1184,18 @@ function camembert(parts, titre){
   g.fillStyle = "#26221f"; g.font = "bold 30px Tahoma, sans-serif";
   if(titre) g.fillText(titre, 40, 56);
   g.font = "24px Tahoma, sans-serif";
+  const xLegende = 440, xTexte = 480, dispo = cv.width - xTexte - 20;
   parts.forEach((p, i) => {
-    const y = 170 + i * 46;
-    g.fillStyle = p.couleur; g.fillRect(560, y - 22, 28, 28);
+    const y = 200 + i * 52;
+    g.fillStyle = p.couleur; g.fillRect(xLegende, y - 22, 28, 28);
     g.fillStyle = "#26221f";
     const pct = Math.round((p.valeur / total) * 100);
-    g.fillText(p.nom + " — " + p.valeur + " (" + pct + " %)", 600, y);
+    let texte = p.nom + " — " + p.valeur + " (" + pct + " %)";
+    // On raccourcit tant que la légende dépasse la largeur du canevas.
+    while(texte.length > 8 && g.measureText(texte).width > dispo){
+      texte = texte.slice(0, texte.length - 2) + "…";
+    }
+    g.fillText(texte, xTexte, y);
   });
   return cv.toDataURL("image/png").split(",")[1];
 }
@@ -1214,8 +1250,8 @@ function tableauPagine(doc, o){
     const hauteur = 0.30 + 0.42 * Math.max(...contenu.map(c => c.length));
 
     if(y + hauteur > yMax){
-      page = nouvellePage(doc, o.titreSuite, null);
-      y = Y_CONTENU - 3.2;                 // pas de filet sur les pages de suite
+      page = nouvellePage(doc, o.titreSuite || null, null);
+      y = Y_TITRE + (o.titreSuite ? 1.9 : 0.4);   // le titre n'est pas répété
       entete();
     }
     let cx = o.x;
@@ -1267,25 +1303,58 @@ function pageActualites(doc, c){
 function pageNature(doc, c, b, titre, cle){
   const e = ecarts ? ecarts[cle] : null;
   pageIntercalaire(doc, titre);
-  const page = nouvellePage(doc, titre, sousTitreComparaison());
-  const largeur = (LARG - 0.4) / 2;
+  let page = nouvellePage(doc, titre, sousTitreComparaison());
+  const largeur = (LARG - 0.8) / 3;
 
   cartouche(doc, page, MARGE, largeur, b.stock,
             "en cours au 01/01/" + c.annee, "#C0504D", e ? e.stock : null, "neutre");
   cartouche(doc, page, MARGE + largeur + 0.4, largeur, b.termines.length,
             "terminés en " + c.annee, "#9BBB59", e ? e.termines : null, "haut");
+  cartouche(doc, page, MARGE + 2 * (largeur + 0.4), largeur, b.interrompus.length,
+            "interrompus en " + c.annee, "#595959", null, "neutre");
 
-  bloc(doc, page, { x:MARGE, y:Y_CONTENU - 0.7, w:LARG, h:0.7, texte:"Terminés dans l'année",
-                    taille:13, gras:true, couleur:"#C0504D", vertical:"bottom" });
+  // Répartition du portefeuille en cours par priorité et par statut.
+  const jeu = jeuProjets(c, [b.nature], "priorite");
+  let y = section(doc, page, Y_CONTENU, "Répartition par priorité");
+  const matrice = jeu.categories.map(cat => {
+    const l = jeu.croise[cat.cle];
+    const total = STATUTS_P.reduce((s, st) => s + l[st.cle], 0);
+    return [
+      cat.libelle,
+      { texte:String(l["a engager"] || "—"), fond:"#fbebeb", couleur:"#993333" },
+      { texte:String(l["en cours"] || "—"),  fond:"#fff8db", couleur:"#7a6000" },
+      { texte:String(l["termine"] || "—"),   fond:"#edf5e0", couleur:"#3b6d11" },
+      { texte:String(l["interrompu"] || "—"), fond:"#f1efe8", couleur:"#666660" },
+      { texte:String(total), gras:true }
+    ];
+  });
+  let etat = tableauPagine(doc, { page, x:MARGE, y,
+    largeurs:[7.0, 3.6, 3.6, 3.6, 3.6, 3.8],
+    entetes:["Priorité", "À engager", "En cours", "Terminé", "Interrompu", "Total"],
+    titreSuite:null, lignes:matrice });
+  page = etat.page; y = etat.y + 0.7;
 
-  if(!b.termines.length){
-    bloc(doc, page, { x:MARGE, y:Y_CONTENU, w:LARG, h:1, taille:11, couleur:"#6F6862",
-                      texte:"Aucun projet terminé sur la période." });
-    return;
+  const colonnes = [11.0, 3.2, 4.6, 3.4, 3.0];
+  if(b.termines.length){
+    y = section(doc, page, y, "Terminés dans l'année");
+    etat = tableauPagine(doc, { page, x:MARGE, y, titreSuite:null, largeurs:colonnes,
+      entetes:["Libellé", "Priorité", "Porteur", "Groupement", "Fin"],
+      lignes:b.termines.map(t => [t.libelle, t.priorite, t.porteur, t.groupement, t.date]) });
+    page = etat.page; y = etat.y + 0.7;
   }
-  tableauPagine(doc, { page, x:MARGE, y:Y_CONTENU, titreSuite:titre + " (suite)",
-    largeurs:[12.4, 5.4, 4.4, 3.0], entetes:["Libellé", "Porteur", "Groupement", "Fin"],
-    lignes:b.termines.map(t => [t.libelle, t.porteur, t.groupement, t.date]) });
+
+  if(b.interrompus.length){
+    if(y > Y_MAX - 3){ page = nouvellePage(doc, null, null); y = Y_TITRE + 0.4; }
+    y = section(doc, page, y, "Interrompus dans l'année");
+    tableauPagine(doc, { page, x:MARGE, y, titreSuite:null, largeurs:colonnes,
+      entetes:["Libellé", "Priorité", "Porteur", "Motif", "Date"],
+      lignes:b.interrompus.map(t => [t.libelle, t.priorite, t.porteur, t.motif, t.date]) });
+  }
+
+  if(!b.termines.length && !b.interrompus.length){
+    bloc(doc, page, { x:MARGE, y, w:LARG, h:1, taille:11, couleur:"#6F6862",
+                      texte:"Aucun projet terminé ni interrompu sur la période." });
+  }
 }
 
 function pageMEC(doc, c){
@@ -1311,7 +1380,7 @@ function pageMEC(doc, c){
       couleur:"#9BBB59" },
     { nom:"En cours de réalisation", valeur:reste, couleur:"#C0504D" }
   ], "État d'avancement");
-  image(doc, page, { x:MARGE, y:Y_CONTENU, w:9.0, h:5.6, base64:png });
+  image(doc, page, { x:MARGE, y:Y_CONTENU, w:9.8, h:5.5, base64:png });
 
   const detail = Object.entries(m.parValeur).map(([v, d]) => {
     const ev = em && em.parValeur[v] ? em.parValeur[v] : null;
@@ -1323,17 +1392,17 @@ function pageMEC(doc, c){
       { texte:ev ? formateEcart(ev.reste) : "", couleur:couleurEcart(ev ? ev.reste : null, "bas") }
     ];
   });
-  tableauPagine(doc, { page, x:MARGE + 9.6, y:Y_CONTENU,
-    largeurs:[5.6, 4.4, 1.9, 2.0, 1.7],
+  tableauPagine(doc, { page, x:MARGE + 10.4, y:Y_CONTENU,
+    largeurs:[5.2, 4.2, 1.8, 1.9, 1.7],
     entetes:["Catégorie", "Famille", "Total", "En cours", "Écart"],
-    titreSuite:"MEC 2023 — répartition (suite)", lignes:detail });
+    titreSuite:null, lignes:detail });
 
   if(m.resteListe.length){
     const suite = nouvellePage(doc, "MEC 2023 — en cours de réalisation", null);
-    tableauPagine(doc, { page:suite, x:MARGE, y:Y_CONTENU - 3.2,
+    tableauPagine(doc, { page:suite, x:MARGE, y:Y_CONTENU,
       largeurs:[13.0, 5.4, 3.8, 3.0],
       entetes:["Libellé", "Catégorie", "Porteur", "Avancement"],
-      titreSuite:"MEC 2023 — en cours de réalisation (suite)",
+      titreSuite:null,
       lignes:m.resteListe.map(r => [
         r.libelle, r.type, r.porteur,
         { texte:r.avancement + " %", fond:couleurAvancement(r.avancement, false) }
@@ -1364,7 +1433,7 @@ function pageP2A(doc, c){
               ep ? ep.parMillesime[m] : null, "neutre");
   });
 
-  tableauPagine(doc, { page, x:MARGE, y:Y_CONTENU, titreSuite:"P2A (suite)",
+  tableauPagine(doc, { page, x:MARGE, y:Y_CONTENU, titreSuite:null,
     largeurs:[4.0, 2.4, 11.2, 4.6, 3.0],
     entetes:["Millésimes", "Nature", "Libellé", "Porteur", "Avancement"],
     lignes:p.lignes.map(l => [
@@ -1996,7 +2065,7 @@ async function demarre(){
     await grist.ready({ requiredAccess:"full", onEditOptions: ouvrirConfiguration });
     cfg = (await grist.widgetApi.getOptions()) || {};
     $("annee").value = cfg.annee || new Date().getFullYear();
-    if(cfg.intercalaires === undefined) cfg.intercalaires = true;
+    if(cfg.intercalaires === undefined) cfg.intercalaires = false;
     $("intercalaires").checked = cfg.intercalaires;
     construitDiapos();
     construitTypes();
