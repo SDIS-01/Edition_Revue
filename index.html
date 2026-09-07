@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-17</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-20</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -661,6 +661,7 @@ function bilanNature(nature, jan1, finAnnee, fraction){
     porteur: txt(l[cfg.colPorteur]),
     groupement: txt(l[cfg.colGroupement]),
     priorite: txt(l[cfg.colPriorite]) || "—",
+    commentaire: txt(l[cfg.colCommentaire]),
     avancement: versPourcent(l[cfg.colAvancement], fraction)
   });
 
@@ -672,7 +673,9 @@ function bilanNature(nature, jan1, finAnnee, fraction){
       { date: jjmmaaaa(versDate(l[cfg.colFin])) })),
     interrompus: interrompus.map(l => Object.assign(decrit(l),
       { date: jjmmaaaa(dateArret(l)),
-        motif: (cfg.colAbandon && versDate(l[cfg.colAbandon])) ? "Abandon" : "Suspension" }))
+        // Le motif est le commentaire saisi dans Grist ; à défaut, la nature de l'arrêt.
+        motif: txt(l[cfg.colCommentaire]) ||
+               ((cfg.colAbandon && versDate(l[cfg.colAbandon])) ? "Abandon" : "Suspension") }))
   };
 }
 
@@ -1009,6 +1012,8 @@ const MARGE = 1.4, LARG = 25.2;
 const Y_TITRE = 1.35;     // bandeau blanc du titre, posé sur l'image d'en-tête
 const H_TITRE = 1.15;
 const Y_HAUT = 3.6;       // premier repère sous l'image d'en-tête
+const Y_HAUT_SUITE = 1.5; // haut de page sur le gabarit à bandeau bas
+const Y_MAX_SUITE = 17.4; // au-dessus du bandeau bas
 const Y_SOUS = 3.7;       // ligne de sous-titre
 const Y_KPI = 4.3;        // chiffres clés
 const H_KPI = 1.8;
@@ -1108,8 +1113,11 @@ function nouvellePage(doc, titre, sousTitre){
   const page = { type:"contenu", titre, sousTitre, frames:[] };
   doc.pages.push(page);
   if(titre){
+    // Le bandeau doit rester dans l'image d'en-tête : on réduit le corps
+    // plutôt que de laisser le texte déborder du cadre.
+    const taille = titre.length > 46 ? 15 : (titre.length > 32 ? 18 : 22);
     bloc(doc, page, { x:MARGE, y:Y_TITRE, w:LARG, h:H_TITRE, texte:titre,
-                      taille:22, gras:true, couleur:BLEU_TITRE, fond:"#FFFFFF",
+                      taille, gras:true, couleur:BLEU_TITRE, fond:"#FFFFFF",
                       align:"center" });
   }
   if(sousTitre){
@@ -1160,10 +1168,17 @@ function pageXML(doc, page, numero){
       '<text:span text:style-name="T2">' + esc(page.titre) + "</text:span>");
   }else{
     // Page de contenu : gabarit à bandeau haut, titre remonté sous le bandeau.
-    xml = modele.intercalaire;
-    // Le titre est tracé par nos soins, en bandeau blanc au-dessus de l'image :
-    // le cadre de titre du gabarit est donc retiré dans tous les cas.
-    xml = xml.replace(/<draw:frame presentation:style-name="pr3"[\s\S]*?<\/draw:frame>/, "");
+    if(page.titre){
+      // Diapositive titrée : gabarit à bandeau haut. Le titre est tracé par nos
+      // soins en bandeau blanc, le cadre de titre du gabarit est donc retiré.
+      xml = modele.intercalaire;
+      xml = xml.replace(/<draw:frame presentation:style-name="pr3"[\s\S]*?<\/draw:frame>/, "");
+    }else{
+      // Diapositive de suite, sans titre : gabarit à bandeau bas.
+      xml = modele.contenu;
+      xml = xml.replace(/<draw:frame presentation:style-name="pr3"[\s\S]*?<\/draw:frame>/, "");
+      xml = xml.replace(/<draw:frame draw:style-name="gr4"[\s\S]*?<\/draw:frame>/, "");
+    }
     if(page.frames.length){
       xml = xml.replace("<presentation:notes", page.frames.join("") + "<presentation:notes");
     }
@@ -1195,33 +1210,34 @@ function manifestXML(images){
 
 function camembert(parts, titre){
   const cv = document.createElement("canvas");
-  cv.width = 1100; cv.height = 620;
+  cv.width = 900; cv.height = 560;
   const g = cv.getContext("2d");
   g.fillStyle = "#ffffff"; g.fillRect(0, 0, cv.width, cv.height);
   const total = parts.reduce((s, p) => s + p.valeur, 0);
   if(!total) return cv.toDataURL("image/png").split(",")[1];
 
-  const cx = 210, cy = 330, r = 175;
+  // Disque en haut, légende dessous : toute la largeur reste disponible pour le texte.
+  const cx = 450, cy = 215, r = 145;
   let a = -Math.PI / 2;
   parts.forEach(p => {
     const ang = (p.valeur / total) * Math.PI * 2;
     g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, r, a, a + ang); g.closePath();
     g.fillStyle = p.couleur; g.fill();
-    g.strokeStyle = "#ffffff"; g.lineWidth = 3; g.stroke();
+    g.strokeStyle = "#ffffff"; g.lineWidth = 4; g.stroke();
     a += ang;
   });
 
-  g.fillStyle = "#26221f"; g.font = "bold 30px Tahoma, sans-serif";
-  if(titre) g.fillText(titre, 40, 56);
-  g.font = "24px Tahoma, sans-serif";
-  const xLegende = 440, xTexte = 480, dispo = cv.width - xTexte - 20;
+  g.fillStyle = "#26221f";
+  if(titre){ g.font = "bold 38px Tahoma, sans-serif"; g.fillText(titre, 20, 46); }
+
+  g.font = "31px Tahoma, sans-serif";
+  const xPastille = 60, xTexte = 108, dispo = cv.width - xTexte - 20;
   parts.forEach((p, i) => {
-    const y = 200 + i * 52;
-    g.fillStyle = p.couleur; g.fillRect(xLegende, y - 22, 28, 28);
+    const y = 440 + i * 52;
+    g.fillStyle = p.couleur; g.fillRect(xPastille, y - 26, 34, 34);
     g.fillStyle = "#26221f";
     const pct = Math.round((p.valeur / total) * 100);
     let texte = p.nom + " — " + p.valeur + " (" + pct + " %)";
-    // On raccourcit tant que la légende dépasse la largeur du canevas.
     while(texte.length > 8 && g.measureText(texte).width > dispo){
       texte = texte.slice(0, texte.length - 2) + "…";
     }
@@ -1258,7 +1274,7 @@ function decoupe(texte, largeur, taille, maxLignes){
 
 function tableauPagine(doc, o){
   let page = o.page, y = o.y;
-  const yMax = o.yMax || Y_MAX;
+  let yMax = o.yMax || (page.titre ? Y_MAX : Y_MAX_SUITE);
   const taille = o.taille || 10;
   const maxLignes = o.maxLignes || 2;
 
@@ -1283,7 +1299,9 @@ function tableauPagine(doc, o){
 
     if(y + hauteur > yMax){
       page = nouvellePage(doc, o.titreSuite || null, null);
-      y = o.titreSuite ? Y_CONTENU : Y_HAUT;      // le titre n'est pas répété
+      // Sans titre, la diapositive bascule sur le gabarit à bandeau bas.
+      y = o.titreSuite ? Y_CONTENU : Y_HAUT_SUITE;
+      yMax = o.titreSuite ? Y_MAX : Y_MAX_SUITE;
       entete();
     }
     let cx = o.x;
@@ -1392,9 +1410,10 @@ function pageNature(doc, c, b, titre, cle){
   }
 
   if(b.interrompus.length){
-    if(y > Y_MAX - 3){ page = nouvellePage(doc, null, null); y = Y_HAUT; }
+    if(y > Y_MAX - 3){ page = nouvellePage(doc, null, null); y = Y_HAUT_SUITE; }
     y = section(doc, page, y, "Interrompus dans l'année");
-    tableauPagine(doc, { page, x:MARGE, y, titreSuite:null, largeurs:colonnes,
+    tableauPagine(doc, { page, x:MARGE, y, titreSuite:null,
+      largeurs:[7.8, 2.6, 4.0, 7.8, 3.0], maxLignes:3,
       entetes:["Libellé", "Priorité", "Porteur", "Motif", "Date"],
       lignes:b.interrompus.map(t => [t.libelle, t.priorite, t.porteur, t.motif, t.date]) });
   }
@@ -1428,9 +1447,18 @@ function pageMEC(doc, c){
       couleur:"#9BBB59" },
     { nom:"En cours de réalisation", valeur:reste, couleur:"#C0504D" }
   ], "État d'avancement");
-  image(doc, page, { x:MARGE, y:Y_CONTENU, w:9.8, h:5.5, base64:png });
+  image(doc, page, { x:MARGE, y:Y_CONTENU, w:9.8, h:6.1, base64:png });
 
-  const detail = Object.entries(m.parValeur).map(([v, d]) => {
+  // Ordre imposé : recommandation majeure, rappel au droit principal,
+  // puis recommandation et rappel au droit.
+  const rang = ([v, d]) => {
+    const t = v.toLowerCase();
+    const grave = /majeur|principal/.test(t) ? 0 : 2;
+    return grave + (d.famille === "rappel" ? 1 : 0);
+  };
+  const detail = Object.entries(m.parValeur)
+    .sort((a, b) => rang(a) - rang(b) || a[0].localeCompare(b[0], "fr"))
+    .map(([v, d]) => {
     const ev = em && em.parValeur[v] ? em.parValeur[v] : null;
     return [
       v,
