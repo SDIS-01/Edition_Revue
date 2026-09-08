@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-35</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-37</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -107,6 +107,19 @@
       <button class="neutre" id="btnFermerConfig">Fermer la configuration</button>
     </div>
     </div>
+
+    <fieldset id="blocGroupement" hidden>
+      <legend>Périmètre de la revue par groupement</legend>
+      <div class="grille">
+        <div><label for="groupementRevue">Groupement</label>
+          <select id="groupementRevue"></select></div>
+      </div>
+      <div class="cases" style="margin-top:8px">
+        <label><input type="checkbox" id="inclureAnnee" checked>
+          Inclure les terminés et interrompus de l'année</label>
+      </div>
+      <p class="aide">« Tous les groupements » produit un document unique, un chapitre par groupement.</p>
+    </fieldset>
 
     <fieldset>
       <legend>Millésimes P2A</legend>
@@ -222,6 +235,9 @@ const TYPES = [
   { id:"p2a",        nom:"P2A",                     diapos:["d5"], fichier:"Revue_P2A",
     sortie:"pdf",
     desc:"PDF A4 : projets et actions des millésimes retenus, avec répartition par avancement." },
+  { id:"groupement", nom:"Revue par groupement",     diapos:["d2","d3","d4"],
+    fichier:"Revue_groupement", sortie:"pdf",
+    desc:"PDF A4 réunissant projets, actions et préconisations d'un groupement, ou de tous." },
   { id:"perso",      nom:"Sélection libre",         diapos:null, fichier:"Revue",
     sortie:"odp",
     desc:"Diaporama des diapositives que vous cochez vous-même." }
@@ -456,6 +472,7 @@ async function chargeDonnees(){
   construitMappings();
   construitP2A();
   construitFamilles();
+  construitGroupements();
   alerte(soucis.length ? "Table illisible — " + soucis.join(" · ") : "", false);
   $("etat").textContent = recPEPS.length + " lignes projets · " + recMEC.length + " recommandations";
 }
@@ -518,6 +535,16 @@ function construitMappings(){
   });
 }
 
+function construitGroupements(){
+  const sel = $("groupementRevue");
+  const liste = listeGroupements();
+  sel.innerHTML = '<option value="*">Tous les groupements</option>' +
+    liste.map(g => '<option value="' + esc(g) + '">' + esc(g) + "</option>").join("");
+  if(cfg.groupementRevue && [...sel.options].some(o => o.value === cfg.groupementRevue)){
+    sel.value = cfg.groupementRevue;
+  }
+}
+
 function construitP2A(){
   const zone = $("p2a"); zone.innerHTML = "";
   if(!cfg.colP2A){ zone.textContent = "Choisissez d'abord la colonne des millésimes."; return; }
@@ -573,6 +600,7 @@ function majDescType(){
   $("descType").textContent = t.desc;
   $("btnGen").textContent = t.sortie === "pdf" ? "Créer le PDF" : "Créer le diaporama";
   $("diapos").closest("fieldset").hidden = t.sortie === "pdf";
+  $("blocGroupement").hidden = t.id !== "groupement";
 }
 
 function construitTypes(){
@@ -1713,7 +1741,7 @@ function nouvelleFeuillePdf(doc, ctx){
   const droite = droiteDe(doc);
   doc.setFontSize(7); doc.setTextColor(...ESTOMPE_P);
   doc.text("Retour à la synthèse", droite, 23.5, { align:"right" });
-  doc.link(droite - 26, 19.5, 26, 5, { pageNumber:1, top:0 });
+  doc.link(droite - 26, 19.5, 26, 5, { pageNumber:ctx.pageRetour || 1, top:0 });
   return y;
 }
 
@@ -2338,6 +2366,7 @@ async function generePDF(type){
   if(type.id === "mec"){ jeu = jeuMEC(c); cleBilan = "mec"; }
   else if(type.id === "p2a"){ jeu = jeuP2A(c); cleBilan = "p2a"; }
   else if(type.id === "projets"){ jeu = jeuProjets(c, ["PEPS", "AV"]); cleBilan = "peps"; }
+  else if(type.id === "groupement"){ return generePDFGroupement(type); }
   else if(type.id === "peps"){ jeu = jeuProjets(c, ["PEPS"]); cleBilan = "peps"; }
   else{ jeu = jeuProjets(c, ["AV"]); cleBilan = "av"; }
   jeu.evolution = evolutionDe(jeu, cleBilan);
@@ -2377,6 +2406,328 @@ async function generePDF(type){
 }
 
 
+
+/* ================================================================== */
+/* Revue par groupement — PDF croisant projets/actions et MEC 2023     */
+/* ================================================================== */
+
+const TOUS_GROUPEMENTS = "*";
+let ctxCourant = null;   // contexte du chapitre en cours
+
+/* Valeurs de groupement présentes dans l'une ou l'autre table. */
+function listeGroupements(){
+  const vues = new Set();
+  if(cfg.colGroupement) recPEPS.forEach(l => {
+    const v = txt(l[cfg.colGroupement]);
+    if(v) vues.add(v);
+  });
+  if(cfg.mecGroupement) recMEC.forEach(l => {
+    const v = txt(l[cfg.mecGroupement]);
+    if(v) vues.add(v);
+  });
+  return [...vues].sort((a, b) => a.localeCompare(b, "fr"));
+}
+
+/* Rang imposé des catégories MEC : majeure, principal, puis les autres. */
+function rangCategorieMEC(valeur){
+  const famille = (cfg.familles && cfg.familles[valeur]) || "reco";
+  return (/majeur|principal/.test(String(valeur).toLowerCase()) ? 0 : 2) +
+         (famille === "rappel" ? 1 : 0);
+}
+
+function jeuGroupement(c, groupement){
+  const tout = groupement === TOUS_GROUPEMENTS;
+  const garde = g => tout || g === groupement;
+
+  // --- projets et actions ---
+  const fracP = detecteFraction(recPEPS, cfg.colAvancement);
+  const lignesProjets = [];
+  [["PEPS", c.peps], ["AV", c.av]].forEach(([defaut, bilan]) => {
+    bilan.stockLignes.forEach(l => {
+      const g = txt(l[cfg.colGroupement]) || "Non renseigné";
+      if(!garde(g)) return;
+      const inter = [cfg.colSuspension, cfg.colAbandon].some(k => k && versDate(l[k]));
+      const av = versPourcent(l[cfg.colAvancement], fracP);
+      const prio = txt(l[cfg.colPriorite]) || "Sans priorité";
+      const nat = txt(l[cfg.colNature]).toUpperCase() || defaut;
+      lignesProjets.push({
+        libelle: txt(l[cfg.colLibelle]), porteur: txt(l[cfg.colPorteur]),
+        groupement: g, commentaire: txt(l[cfg.colCommentaire]),
+        avancement: av, statut: statutDeLigne(av, inter),
+        priorite: prio, nature: nat, source: "projet",
+        categorie: prio + " · " + nat
+      });
+    });
+  });
+
+  // --- préconisations ---
+  const fracM = detecteFraction(recMEC, cfg.mecAvancement);
+  const lignesMEC = [];
+  recMEC.forEach(l => {
+    const v = txt(l[cfg.mecType]) || "(non renseigné)";
+    if((cfg.familles && cfg.familles[v]) === "hors") return;
+    const g = txt(l[cfg.mecGroupement]) || "Non renseigné";
+    if(!garde(g)) return;
+    const av = versPourcent(l[cfg.mecAvancement], fracM);
+    lignesMEC.push({
+      libelle: txt(l[cfg.mecLibelle]), porteur: txt(l[cfg.mecPorteur]),
+      groupement: g, commentaire: txt(l[cfg.mecCommentaire]),
+      avancement: av, statut: statutDeLigne(av, estInterrompu(l)),
+      nature: "Préconisation", source: "preconisation", categorie: v
+    });
+  });
+
+  // --- catégories : projets d'abord, puis préconisations ---
+  const priorites = [...new Set(lignesProjets.map(l => l.priorite))]
+    .sort((a, b) => a.localeCompare(b, "fr"));
+  const teinte = {};
+  priorites.forEach((p, i) => teinte[p] = couleurPriorite(p, CAT_COULEURS[i % CAT_COULEURS.length]));
+  const rangNature = n => (n === "PEPS" ? 0 : (n === "AV" ? 1 : 2));
+
+  const catProjets = [...new Set(lignesProjets.map(l => l.categorie))]
+    .sort((a, b) => {
+      const [pa, na] = a.split(" · "), [pb, nb] = b.split(" · ");
+      return pa.localeCompare(pb, "fr") || rangNature(na) - rangNature(nb);
+    })
+    .map(v => ({ cle:v, libelle:v, couleur:teinte[v.split(" · ")[0]] || CAT_COULEURS[0] }));
+
+  const catMEC = [...new Set(lignesMEC.map(l => l.categorie))]
+    .sort((a, b) => rangCategorieMEC(a) - rangCategorieMEC(b) || a.localeCompare(b, "fr"))
+    .map((v, i) => ({ cle:v, libelle:v, couleur:CAT_COULEURS[(i + 2) % CAT_COULEURS.length] }));
+
+  // Jeu principal : sert au sommaire et au détail, les deux sources réunies.
+  const jeu = agrege({
+    axe: "catégorie",
+    categories: catProjets.concat(catMEC),
+    lignes: lignesProjets.concat(lignesMEC),
+    titreDetail: "Détail — projets, actions et préconisations",
+    champs: (() => {
+      const ch = champsDetail({ id:"groupement" });
+      ch[0].titre = "Libellé";
+      return ch;
+    })()
+  });
+  jeu.groupement = groupement;
+
+  // Sous-jeux : un bloc focus et un avancement par source.
+  jeu.sousJeux = {
+    projets: agrege({ axe:"priorité et nature",
+      libelleFocus:"priorité, nature et statut",
+      categories:catProjets, lignes:lignesProjets, champs:jeu.champs,
+      titreDetail:"" }),
+    mec: agrege({ axe:"catégorie", libelleFocus:"catégorie et statut",
+      categories:catMEC, lignes:lignesMEC, champs:jeu.champs, titreDetail:"" })
+  };
+
+  jeu.natures = [
+    { libelle:"PEPS", couleur:CAT_COULEURS[2],
+      valeur:lignesProjets.filter(l => l.nature === "PEPS").length },
+    { libelle:"AV", couleur:CAT_COULEURS[3],
+      valeur:lignesProjets.filter(l => l.nature === "AV").length },
+    { libelle:"Préconisations", couleur:CAT_COULEURS[0], valeur:lignesMEC.length }
+  ];
+  return jeu;
+}
+
+/* ---------- Synthèse d'un groupement ---------- */
+
+function pageSyntheseGroupementPdf(doc, ctx, jeu, y){
+  const droite = droiteDe(doc);
+  const zones = [];
+
+  doc.setFontSize(8); doc.setTextColor(...GRIS_P);
+  doc.text("Avancement global", MARGE_P, y);
+
+  const paires = [
+    { jeu:jeu.sousJeux.projets, libelle:"projets et actions" },
+    { jeu:jeu.sousJeux.mec,     libelle:"préconisations" }
+  ];
+  paires.forEach((p, i) => {
+    const teinte = statutParCle(statutDeLigne(p.jeu.global * 100, false));
+    cadreValeur(doc, MARGE_P + i * 50, y + 2, 46, 18,
+                p.libelle + " (" + p.jeu.total + ")",
+                p.jeu.total ? pourcentPdf(p.jeu.global) : "—",
+                teinte.encre, teinte.fond);
+  });
+
+  if(jeu.natures && jeu.natures.length){
+    doc.setFontSize(8); doc.setTextColor(...GRIS_P);
+    doc.text("Répartition par nature", 118, y);
+    legendePdf(doc, 118, y + 8, jeu.natures.map(n =>
+      ({ libelle:n.libelle, couleur:n.couleur, valeur:String(n.valeur) })), 80);
+  }
+
+  let x = MARGE_P;
+  for(const s of STATUTS_P){
+    cadreValeur(doc, x, y + 28, 44, 18, s.libelle, String(jeu.parStatut[s.cle] || 0),
+                s.cle === "en cours" ? [154,122,0] : s.couleur);
+    x += 46.5;
+  }
+
+  doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
+  doc.line(MARGE_P, y + 54, droite, y + 54);
+
+  const haut = y + 64, milieu = 105;
+  doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
+  doc.text("Répartition par statut", MARGE_P, haut);
+  doc.text("Répartition par nature", milieu + 6, haut);
+
+  if(jeu.total){
+    doc.addImage(donut(STATUTS_P.map(s =>
+      ({ valeur:jeu.parStatut[s.cle] || 0, couleur:s.couleur })), jeu.total),
+      "PNG", 41.5, haut + 4, 28, 28);
+    const totalNat = jeu.natures.reduce((a, b) => a + b.valeur, 0) || jeu.total;
+    doc.addImage(donut(jeu.natures.map(n => ({ valeur:n.valeur, couleur:n.couleur })), totalNat),
+                 "PNG", 140.5, haut + 4, 28, 28);
+  }
+  legendePdf(doc, MARGE_P, haut + 42, STATUTS_P.map(s => ({
+    libelle:s.libelle, couleur:s.couleur, valeur:String(jeu.parStatut[s.cle] || 0)
+  })), 87);
+  doc.setDrawColor(...TRAIT_P);
+  doc.line(milieu, haut - 6, milieu, haut + 68);
+  legendePdf(doc, milieu + 6, haut + 42, jeu.natures.map(n => ({
+    libelle:n.libelle, couleur:n.couleur, valeur:String(n.valeur)
+  })), 87);
+  doc.line(MARGE_P, haut + 74, droite, haut + 74);
+
+  // Deux blocs focus successifs : les deux sources n'ont pas le même axe.
+  let suite = haut + 84;
+  for(const p of paires){
+    if(!p.jeu.total) continue;
+    suite = assurerPlace(doc, ctx, suite, 40);
+    const bloc = blocFocusPdf(doc, ctx, suite, p.jeu);
+    zones.push(...bloc.zones);
+    suite = bloc.y + 6;
+  }
+  return { y:suite, zones };
+}
+
+/* ---------- Terminés et interrompus de l'année ---------- */
+
+function tableauAnnuelPdf(doc, ctx, y, titre, colonnes, lignes){
+  if(!lignes.length) return y;
+  y = assurerPlace(doc, ctx, y + 6, 30);
+  const droite = droiteDe(doc);
+  doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
+  doc.text(titre + "  (" + lignes.length + ")", MARGE_P, y);
+  y += 6;
+
+  const somme = colonnes.reduce((a, c) => a + c.poids, 0);
+  let curseur = MARGE_P;
+  const cols = colonnes.map(c => {
+    const l = (droite - MARGE_P) * c.poids / somme;
+    const col = { titre:c.titre, cle:c.cle, x:curseur, l:l - 2 };
+    curseur += l;
+    return col;
+  });
+
+  doc.setFontSize(7); doc.setTextColor(...GRIS_P);
+  cols.forEach(c => doc.text(c.titre, c.x, y));
+  doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
+  doc.line(MARGE_P, y + 2, droite, y + 2);
+  y += 7;
+
+  for(const r of lignes){
+    doc.setFontSize(7.5);
+    const cellules = cols.map(c => lignesCellule(doc, r[c.cle], c.l, 3));
+    const hauteur = Math.max(6, Math.max(...cellules.map(t => t.length)) * 3.4 + 2.2);
+    if(y + hauteur > basDe(doc)) y = nouvelleFeuillePdf(doc, ctx);
+    cols.forEach((c, i) => {
+      doc.setTextColor(61, 61, 58);
+      cellules[i].forEach((t, k) => doc.text(t, c.x, y + 4 + k * 3.4));
+    });
+    doc.setDrawColor(237, 235, 228); doc.setLineWidth(0.15);
+    doc.line(MARGE_P, y + hauteur - 1.4, droite, y + hauteur - 1.4);
+    y += hauteur;
+  }
+  return y;
+}
+
+function pageAnnuelleGroupementPdf(doc, ctx, c, groupement, y){
+  const tout = groupement === TOUS_GROUPEMENTS;
+  const garde = l => tout || l.groupement === groupement;
+  const termines = c.peps.termines.concat(c.av.termines).filter(garde);
+  const interrompus = c.peps.interrompus.concat(c.av.interrompus).filter(garde);
+
+  y = tableauAnnuelPdf(doc, ctx, y, "Terminés dans l'année", [
+    { cle:"libelle", titre:"Projet ou action", poids:3.2 },
+    { cle:"priorite", titre:"Priorité", poids:0.7 },
+    { cle:"porteur", titre:"Porteur", poids:1.2 },
+    { cle:"groupement", titre:"Groupement", poids:1.0 },
+    { cle:"date", titre:"Fin", poids:0.8 }
+  ], termines);
+
+  y = tableauAnnuelPdf(doc, ctx, y, "Interrompus dans l'année", [
+    { cle:"libelle", titre:"Projet ou action", poids:2.6 },
+    { cle:"priorite", titre:"Priorité", poids:0.6 },
+    { cle:"porteur", titre:"Porteur", poids:1.0 },
+    { cle:"motif", titre:"Motif", poids:2.4 },
+    { cle:"date", titre:"Date", poids:0.8 }
+  ], interrompus);
+  return y;
+}
+
+/* ---------- Assemblage ---------- */
+
+/* Un chapitre complet : synthèse, sommaire, détail. Le sommaire est tracé en fin
+   de chapitre puis ramené juste avant le détail, comme sur les autres revues. */
+function chapitreGroupementPdf(doc, ctx, c, jeu, avecAnnee, yDepart){
+  jeu.lignes.forEach((l, i) => l.id = (jeu.groupement || "g") + "-" + i);
+
+  const synthese = pageSyntheseGroupementPdf(doc, ctx, jeu, yDepart);
+  let y = synthese.y;
+  if(avecAnnee) y = pageAnnuelleGroupementPdf(doc, ctx, c, jeu.groupement, y);
+
+  const avantDetail = doc.internal.getNumberOfPages();
+  let ancres = pageDetailPdf(doc, ctx, jeu);
+
+  const avantSommaire = doc.internal.getNumberOfPages();
+  const nb = dessinerSommaire(doc, ctx, jeu, ancres);
+  for(let i = 0; i < nb; i++) doc.deletePage(doc.internal.getNumberOfPages());
+  ancres = decalerAncres(ancres, nb, avantDetail);
+  dessinerSommaire(doc, ctx, jeu, ancres);
+  for(let k = 0; k < nb; k++) doc.movePage(avantSommaire + 1 + k, avantDetail + 1 + k);
+
+  poserLiens(doc, synthese.zones, ancres);
+}
+
+async function generePDFGroupement(type){
+  const c = calcul;
+  const choix = cfg.groupementRevue || TOUS_GROUPEMENTS;
+  const avecAnnee = cfg.inclureAnnee !== false;
+  const groupes = choix === TOUS_GROUPEMENTS ? listeGroupements() : [choix];
+  if(!groupes.length){ alerte("Aucun groupement trouvé dans les tables."); return; }
+
+  const doc = new window.jspdf.jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
+  let premier = true;
+
+  for(const g of groupes){
+    const jeu = jeuGroupement(c, g);
+    const n = jeu.total;
+    ctxCourant = {
+      titre: "Revue " + g,
+      sousTitre: "Édition du " + jjmmaaaa(new Date()) + " — " + n +
+                 (n > 1 ? " lignes suivies" : " ligne suivie"),
+      pages: ["portrait"]
+    };
+    if(premier){
+      ctxCourant.pageRetour = 1;
+      var y = enTetePdf(doc, ctxCourant);
+    }else{
+      ctxCourant.pageRetour = doc.internal.getNumberOfPages() + 1;
+      var y = nouvelleFeuillePdf(doc, ctxCourant);
+    }
+    premier = false;
+    chapitreGroupementPdf(doc, ctxCourant, c, jeu, avecAnnee, y);
+  }
+
+  piedDePagePdf(doc, ctxCourant);
+  const suffixe = choix === TOUS_GROUPEMENTS
+    ? "tous" : choix.replace(/[^\w-]+/g, "_").slice(0, 30);
+  doc.save(type.fichier + "_" + suffixe + "_" + c.annee + ".pdf");
+  alerte("PDF créé : " + doc.getNumberOfPages() + " page(s).", true);
+}
+
 /* ------------------------------------------------------------------ */
 /* Démarrage                                                           */
 /* ------------------------------------------------------------------ */
@@ -2411,6 +2762,12 @@ $("tHisto").addEventListener("change", () =>
 $("memeType").addEventListener("change", () => { construitComparaison(); recalcule(); });
 ["detPorteur", "detGroupement", "detCommentaire"].forEach(id =>
   $(id).addEventListener("change", () => { cfg[id] = $(id).checked; sauve(); }));
+$("groupementRevue").addEventListener("change", () => {
+  cfg.groupementRevue = $("groupementRevue").value; sauve();
+});
+$("inclureAnnee").addEventListener("change", () => {
+  cfg.inclureAnnee = $("inclureAnnee").checked; sauve();
+});
 $("intercalaires").addEventListener("change", () => {
   cfg.intercalaires = $("intercalaires").checked; sauve();
 });
@@ -2432,6 +2789,8 @@ async function demarre(){
       if(cfg[id] === undefined) cfg[id] = true;
       $(id).checked = cfg[id];
     });
+    if(cfg.inclureAnnee === undefined) cfg.inclureAnnee = true;
+    $("inclureAnnee").checked = cfg.inclureAnnee;
     construitDiapos();
     construitTypes();
     appliqueType();
