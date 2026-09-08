@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-38</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-39</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1055,10 +1055,12 @@ const MODELE_OTP = "UEsDBBQAAAgAACdcJ13vDBQ6OAAAADgAAAAIAAAAbWltZXR5cGVhcHBsaWNh
 /* Géométrie reprise du modèle : page 28 × 21, cadres de titre à x = 1,4 sur 25,2 cm. */
 const L = 28, H = 21;
 const MARGE = 1.4, LARG = 25.2;
-const Y_TITRE = 1.35;     // bandeau blanc du titre, posé sur l'image d'en-tête
+// Bandeau blanc du titre, posé sur l'image d'en-tête. Position relevée sur la
+// diapositive de référence : 5,0 à 27,5 cm en largeur, 1,2 à 2,35 en hauteur.
+const Y_TITRE = 1.2;
 const H_TITRE = 1.15;
-const X_TITRE = 4.0;      // après le logo du masque, qui occupe 0,6 à 3,4
-const W_TITRE = 22.6;     // jusqu'au bord droit de la zone de titre
+const X_TITRE = 5.0;
+const W_TITRE = 22.5;
 const Y_HAUT = 3.6;       // premier repère sous l'image d'en-tête
 const Y_HAUT_SUITE = 1.5; // haut de page sur le gabarit à bandeau bas
 const Y_MAX_SUITE = 17.4; // au-dessus du bandeau bas
