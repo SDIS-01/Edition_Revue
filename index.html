@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-39</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-41</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -203,7 +203,8 @@ const CHAMPS_PEPS = [
   ["colSuspension", "Date de suspension"],
   ["colAbandon",    "Date d'abandon"],
   ["colP2A",        "Millésimes P2A"],
-  ["colCommentaire","Commentaire"]
+  ["colCommentaire","Commentaire"],
+  ["colIdProjet",   "Identifiant du projet parent"]
 ];
 
 const CHAMPS_MEC = [
@@ -516,6 +517,7 @@ const INDICES = {
   colFin:["date_fin","fin"], colSuspension:["date_suspension","suspension"],
   colAbandon:["date_abandon","abandon"], colP2A:["p2a"],
   colCommentaire:["commentaire","observation","remarque"],
+  colIdProjet:["id_projet_action_av","id_projet","projet_parent"],
   mecGroupement:["groupement"], mecCommentaire:["commentaire","observation","remarque"],
   mecLibelle:["libelle","libellé","recommandation","intitule"],
   mecType:["reccomandation_rappel","recommandation_rappel","type"],
@@ -740,9 +742,19 @@ function bilanMEC(fraction){
 
 function bilanP2A(fraction){
   const choisis = cfg.p2aChoisis || [];
-  if(!cfg.colP2A || !choisis.length) return { lignes: [], parMillesime: {} };
+  if(!cfg.colP2A || !choisis.length) return { lignes: [], parMillesime: {}, projets: new Map() };
   const parMillesime = {};
   choisis.forEach(m => parMillesime[m] = 0);
+
+  // Lignes projet, indexées par leur identifiant : elles portent le groupement
+  // de référence et le libellé qui coiffera leurs actions de mise en œuvre.
+  const projets = new Map();
+  if(cfg.colIdProjet) recPEPS.forEach(l => {
+    const nat = txt(l[cfg.colNature]).toUpperCase();
+    if(nat !== "PEPS" && nat !== "AV") return;
+    const id = txt(l[cfg.colIdProjet]);
+    if(id) projets.set(id, l);
+  });
 
   const lignes = [];
   recPEPS.forEach(l => {
@@ -750,19 +762,28 @@ function bilanP2A(fraction){
     const communs = mil.filter(m => choisis.includes(m));
     if(!communs.length) return;                       // dédoublonnage : une ligne = une entrée
     communs.forEach(m => parMillesime[m]++);
+    const nature = txt(l[cfg.colNature]).toUpperCase();
+    const idParent = cfg.colIdProjet ? txt(l[cfg.colIdProjet]) : "";
+    const projet = projets.get(idParent);
+    // En cas de désaccord, le groupement du projet prime sur celui de l'action.
+    const groupement = (projet ? txt(projet[cfg.colGroupement]) : "")
+                       || txt(l[cfg.colGroupement]) || "Non renseigné";
     lignes.push({
       millesimes: communs.join(" · "),
-      nature: txt(l[cfg.colNature]),
+      nature,
       libelle: txt(l[cfg.colLibelle]),
       porteur: txt(l[cfg.colPorteur]),
-      groupement: txt(l[cfg.colGroupement]),
+      groupement,
       commentaire: txt(l[cfg.colCommentaire]),
       avancement: versPourcent(l[cfg.colAvancement], fraction),
-      interrompu: [cfg.colSuspension, cfg.colAbandon].some(c => c && versDate(l[c]))
+      interrompu: [cfg.colSuspension, cfg.colAbandon].some(c => c && versDate(l[c])),
+      idProjet: idParent,
+      libelleProjet: projet ? txt(projet[cfg.colLibelle]) : "",
+      estProjet: nature === "PEPS" || nature === "AV"
     });
   });
   lignes.sort((a, b) => a.nature.localeCompare(b.nature) || a.libelle.localeCompare(b.libelle));
-  return { lignes, parMillesime };
+  return { lignes, parMillesime, projets };
 }
 
 function recalcule(){
@@ -1620,24 +1641,115 @@ function pageP2A(doc, c){
     return;
   }
 
-  const millesimes = Object.entries(p.parMillesime);
-  const nb = Math.min(millesimes.length + 1, 5);
-  const largeur = (LARG - 0.4 * (nb - 1)) / nb;
-  cartouche(doc, page, MARGE, largeur, p.lignes.length, "projets et actions", "#C0504D",
-            ep && ep.comparable ? ep.total : null, "neutre");
-  millesimes.slice(0, nb - 1).forEach(([m, n], i) => {
-    cartouche(doc, page, MARGE + (i + 1) * (largeur + 0.4), largeur, n, m, "#7f6f6c",
-              ep ? ep.parMillesime[m] : null, "neutre");
+  // --- chiffres clés : avancement global et effectifs par nature ---
+  const somme = p.lignes.reduce((s, l) => s + l.avancement, 0);
+  const global = Math.round(somme / p.lignes.length);
+  const parNature = n => p.lignes.filter(l => l.nature === n).length;
+  const largeur = (LARG - 1.2) / 4;
+
+  cartouche(doc, page, MARGE, largeur, global + " %", "d'avancement global",
+            encreAvancement(global, false), null, "neutre");
+  cartouche(doc, page, MARGE + largeur + 0.4, largeur, parNature("PEPS"), "PEPS", "#C0504D",
+            null, "neutre");
+  cartouche(doc, page, MARGE + 2 * (largeur + 0.4), largeur, parNature("AV"), "AV", "#7f6f6c",
+            null, "neutre");
+  cartouche(doc, page, MARGE + 3 * (largeur + 0.4), largeur, parNature("MEO"), "MEO", "#F79646",
+            null, "neutre");
+
+  // --- répartition groupement x statut ---
+  const teintes = {
+    "a engager":  { fond:"#fbebeb", couleur:"#993333" },
+    "en cours":   { fond:"#fff8db", couleur:"#7a6000" },
+    "termine":    { fond:"#edf5e0", couleur:"#3b6d11" },
+    "interrompu": { fond:"#f1efe8", couleur:"#666660" }
+  };
+  const ordre = ["a engager", "en cours", "termine", "interrompu"];
+  const groupements = [...new Set(p.lignes.map(l => l.groupement))]
+    .sort((a, b) => a.localeCompare(b, "fr"));
+
+  const matrice = groupements.map(g => {
+    const membres = p.lignes.filter(l => l.groupement === g);
+    const compte = {};
+    ordre.forEach(k => compte[k] = membres.filter(l =>
+      statutDeLigne(l.avancement, l.interrompu) === k).length);
+    return [g].concat(ordre.map(k =>
+      Object.assign({ texte: compte[k] ? String(compte[k]) : "—" }, teintes[k])))
+      .concat([{ texte:String(membres.length), gras:true }]);
   });
 
-  tableauPagine(doc, { page, x:MARGE, y:Y_CONTENU, titreSuite:null,
-    largeurs:[4.0, 2.4, 11.2, 4.6, 3.0],
-    entetes:["Millésimes", "Nature", "Libellé", "Porteur", "Avancement"],
-    lignes:p.lignes.map(l => [
-      l.millesimes, l.nature, l.libelle, l.porteur,
-      { texte:l.avancement + " %", couleur:encreAvancement(l.avancement, l.interrompu),
-        gras:true }
-    ]) });
+  let etat = tableauPagine(doc, { page, x:MARGE, y:Y_CONTENU,
+    largeurs:[8.0, 3.4, 3.4, 3.4, 3.4, 3.6],
+    entetes:["Groupement", "À engager", "En cours", "Terminé", "Interrompu", "Total"],
+    alignes:["start", "center", "center", "center", "center", "center"],
+    titreSuite:null, lignes:matrice });
+
+  // --- focus sur les lignes terminées ---
+  const termines = p.lignes.filter(l => statutDeLigne(l.avancement, l.interrompu) === "termine")
+    .sort((a, b) => a.groupement.localeCompare(b.groupement, "fr") ||
+                    a.libelle.localeCompare(b.libelle, "fr"));
+  const pageTerm = nouvellePage(doc, "P2A — terminés", termines.length +
+    (termines.length > 1 ? " lignes terminées" : " ligne terminée") + " sur " + p.lignes.length);
+  if(!termines.length){
+    bloc(doc, pageTerm, { x:MARGE, y:Y_CONTENU, w:LARG, h:1, taille:11, couleur:"#6F6862",
+                          texte:"Aucune ligne terminée sur ce périmètre." });
+  }else{
+    tableauPagine(doc, { page:pageTerm, x:MARGE, y:Y_CONTENU, titreSuite:null,
+      largeurs:[4.0, 12.6, 2.4, 6.2],
+      entetes:["Groupement", "Libellé", "Nature", "Porteur"],
+      lignes:termines.map(l => [l.groupement, l.libelle, l.nature, l.porteur]) });
+  }
+
+  // --- détail : par groupement, chaque MEO sous son projet ---
+  const detail = [];
+  groupements.forEach(g => {
+    const membres = p.lignes.filter(l => l.groupement === g);
+    const projets = [...new Set(membres.map(l => l.idProjet))]
+      .sort((a, b) => {
+        const la = (membres.find(l => l.idProjet === a && l.estProjet) || {}).libelle ||
+                   (membres.find(l => l.idProjet === a) || {}).libelleProjet || a;
+        const lb = (membres.find(l => l.idProjet === b && l.estProjet) || {}).libelle ||
+                   (membres.find(l => l.idProjet === b) || {}).libelleProjet || b;
+        return String(la).localeCompare(String(lb), "fr");
+      });
+    let premier = true;
+    projets.forEach(id => {
+      const fratrie = membres.filter(l => l.idProjet === id);
+      const projet = fratrie.find(l => l.estProjet);
+      const actions = fratrie.filter(l => !l.estProjet)
+        .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
+
+      if(projet){
+        detail.push([
+          { texte: premier ? g : "", gras:true },
+          { texte:projet.libelle, gras:true },
+          { texte:projet.nature, gras:true },
+          projet.porteur,
+          { texte:projet.avancement + " %", gras:true,
+            couleur:encreAvancement(projet.avancement, projet.interrompu) }
+        ]);
+      }else{
+        // Action rattachée à un projet hors sélection : on rappelle son intitulé.
+        detail.push([
+          { texte: premier ? g : "", gras:true },
+          { texte:fratrie[0].libelleProjet || "Projet non sélectionné", gras:true,
+            couleur:"#8a827c" },
+          "", "", ""
+        ]);
+      }
+      premier = false;
+      actions.forEach(a => detail.push([
+        "", "— " + a.libelle, a.nature, a.porteur,
+        { texte:a.avancement + " %", couleur:encreAvancement(a.avancement, a.interrompu) }
+      ]));
+    });
+  });
+
+  const pageDetail = nouvellePage(doc, "P2A — détail par groupement", null);
+  tableauPagine(doc, { page:pageDetail, x:MARGE, y:Y_CONTENU - 3.2, titreSuite:null,
+    largeurs:[3.8, 11.6, 2.2, 4.0, 3.6],
+    entetes:["Groupement", "Libellé", "Nature", "Porteur", "Avancement"],
+    alignes:["start", "start", "center", "start", "center"],
+    lignes:detail });
 }
 
 /* ---------- Fabrication du fichier ---------- */
@@ -1855,7 +1967,7 @@ function pageSynthesePdf(doc, ctx, jeu){
 
   if(jeu.natures && jeu.natures.length){
     doc.setFontSize(8); doc.setTextColor(...GRIS_P);
-    doc.text("Répartition par nature", 118, y);
+    doc.text(jeu.titreNatures || "Répartition par nature", 118, y);
     legendePdf(doc, 118, y + 8, jeu.natures.map(n =>
       ({ libelle:n.libelle, couleur:n.couleur, valeur:String(n.valeur) })), 80);
   }
@@ -2329,9 +2441,11 @@ function jeuMEC(c){
   });
 }
 
-/* P2A : une ligne portant plusieurs millésimes est comptée dans chacun d'eux
-   pour la répartition, mais n'apparaît qu'une fois dans le détail. */
+/* P2A : le focus croise groupement et nature, le camembert porte sur la nature,
+   et le bloc du haut rappelle les effectifs par millésime. Une ligne portant
+   plusieurs millésimes n'apparaît qu'une fois dans le détail. */
 function jeuP2A(c){
+  const rangNature = n => (n === "PEPS" ? 0 : (n === "AV" ? 1 : 2));
   const lignes = c.p2a.lignes.map(l => ({
     libelle: l.libelle,
     porteur: l.porteur,
@@ -2339,25 +2453,50 @@ function jeuP2A(c){
     commentaire: l.commentaire,
     avancement: l.avancement,
     statut: statutDeLigne(l.avancement, l.interrompu),
-    categorie: l.millesimes.split(" · ")[0],
-    millesimes: l.millesimes.split(" · ")
+    nature: l.nature,
+    millesimes: l.millesimes.split(" · "),
+    categorie: l.groupement + " · " + l.nature
   }));
-  const valeurs = [...(cfg.p2aChoisis || [])].sort();
+
+  const groupements = [...new Set(lignes.map(l => l.groupement))]
+    .sort((a, b) => a.localeCompare(b, "fr"));
+  const teinte = {};
+  groupements.forEach((g, i) => teinte[g] = CAT_COULEURS[i % CAT_COULEURS.length]);
+
+  const categories = [...new Set(lignes.map(l => l.categorie))]
+    .sort((a, b) => {
+      const [ga, na] = a.split(" · "), [gb, nb] = b.split(" · ");
+      return ga.localeCompare(gb, "fr") || rangNature(na) - rangNature(nb);
+    })
+    .map(v => ({ cle:v, libelle:v, couleur:teinte[v.split(" · ")[0]] || CAT_COULEURS[0] }));
+
   const jeu = agrege({
-    axe: "millésime",
-    categories: categoriesDepuis(valeurs),
+    axe: "groupement et nature",
+    axeDonut: "nature",
+    libelleFocus: "groupement, nature et statut",
+    categories,
     lignes,
     titreDetail: "Détail des projets et actions P2A",
     champs: champsDetail({ id:"p2a" })
   });
-  // Recomptage par millésime : chaque ligne compte dans tous ses millésimes.
-  valeurs.forEach(v => { jeu.parCategorie[v] = 0; STATUTS_P.forEach(s => jeu.croise[v][s.cle] = 0); });
-  lignes.forEach(l => l.millesimes.forEach(m => {
-    if(jeu.parCategorie[m] === undefined) return;
-    jeu.parCategorie[m]++;
-    jeu.croise[m][l.statut]++;
+
+  // Camembert par nature.
+  const naturesVues = [...new Set(lignes.map(l => l.nature))]
+    .sort((a, b) => rangNature(a) - rangNature(b));
+  const couleurNature = { PEPS:[192,80,77], AV:[128,100,162], MEO:[247,150,70] };
+  jeu.donut = naturesVues.map((n, i) => ({
+    cle:n, libelle:n,
+    couleur: couleurNature[n] || CAT_COULEURS[i % CAT_COULEURS.length],
+    valeur: lignes.filter(l => l.nature === n).length
   }));
-  jeu.totalCategories = Object.values(jeu.parCategorie).reduce((a, b) => a + b, 0);
+
+  // Bloc du haut : effectifs par millésime, une ligne comptant dans chacun des siens.
+  const choisis = [...(cfg.p2aChoisis || [])].sort();
+  jeu.titreNatures = "Répartition par millésime";
+  jeu.natures = choisis.map((m, i) => ({
+    libelle:m, couleur:CAT_COULEURS[(i + 4) % CAT_COULEURS.length],
+    valeur: lignes.filter(l => l.millesimes.includes(m)).length
+  }));
   return jeu;
 }
 
@@ -2572,7 +2711,7 @@ function pageSyntheseGroupementPdf(doc, ctx, jeu, y){
 
   if(jeu.natures && jeu.natures.length){
     doc.setFontSize(8); doc.setTextColor(...GRIS_P);
-    doc.text("Répartition par nature", 118, y);
+    doc.text(jeu.titreNatures || "Répartition par nature", 118, y);
     legendePdf(doc, 118, y + 8, jeu.natures.map(n =>
       ({ libelle:n.libelle, couleur:n.couleur, valeur:String(n.valeur) })), 80);
   }
