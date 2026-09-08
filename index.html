@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-45</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-46</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1090,7 +1090,7 @@ const Y_KPI = 4.3;        // chiffres clés
 const H_KPI = 1.8;
 const Y_CONTENU = 6.5;    // tableaux et graphiques
 const Y_MAX = 19.7;       // bas de page utile
-const BLEU_TITRE = "#2A6099";
+const COULEUR_TITRE = "#C0504D";   // rouge de la charte, relevé sur la diapositive validée
 
 let modele = null;        // morceaux extraits du modèle, chargés une fois
 
@@ -1188,7 +1188,7 @@ function nouvellePage(doc, titre, sousTitre){
     // plutôt que de laisser le texte déborder du cadre.
     const taille = titre.length > 46 ? 15 : (titre.length > 32 ? 18 : 22);
     bloc(doc, page, { x:X_TITRE, y:Y_TITRE, w:W_TITRE, h:H_TITRE, texte:titre,
-                      taille, gras:true, couleur:BLEU_TITRE, fond:"#FFFFFF",
+                      taille, gras:true, couleur:COULEUR_TITRE, fond:"#FFFFFF",
                       align:"center" });
   }
   if(sousTitre){
