@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-41</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-45</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1330,17 +1330,23 @@ function camembert(parts, titre){
 }
 
 /* Anneau d'avancement : part remplie proportionnelle, pourcentage au centre. */
-function anneauAvancement(pct, libelle){
+function anneauAvancement(pct, libelle, compact){
   const cv = document.createElement("canvas");
-  cv.width = GRAPH.l; cv.height = GRAPH.h;
-  const g = fondGraphique(cv, libelle);
-  const rInt = GRAPH.r * 0.64;
+  const geo = compact ? { l:480, h:480, cx:240, cy:240, r:215 } : GRAPH;
+  cv.width = geo.l; cv.height = geo.h;
+  const g = compact ? (() => {
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    return ctx;
+  })() : fondGraphique(cv, libelle);
+  const rInt = geo.r * 0.64;
   const part = Math.max(0, Math.min(100, pct)) / 100;
 
   const secteur = (debut, fin, couleur) => {
     g.beginPath();
-    g.arc(GRAPH.cx, GRAPH.cy, GRAPH.r, debut, fin);
-    g.arc(GRAPH.cx, GRAPH.cy, rInt, fin, debut, true);
+    g.arc(geo.cx, geo.cy, geo.r, debut, fin);
+    g.arc(geo.cx, geo.cy, rInt, fin, debut, true);
     g.closePath();
     g.fillStyle = couleur; g.fill();
   };
@@ -1357,7 +1363,7 @@ function anneauAvancement(pct, libelle){
     corps -= 4;
     g.font = "bold " + corps + "px Tahoma, sans-serif";
   }
-  g.fillText(valeur, GRAPH.cx, GRAPH.cy);
+  g.fillText(valeur, geo.cx, geo.cy);
   return cv.toDataURL("image/png").split(",")[1];
 }
 
@@ -1407,6 +1413,20 @@ function tableauPagine(doc, o){
   entete();
 
   o.lignes.forEach((ligne, r) => {
+    if(ligne && ligne.separateur){
+      const h = ligne.hauteur || 0.22;
+      if(y + h > yMax){
+        page = nouvellePage(doc, o.titreSuite || null, null);
+        y = o.titreSuite ? Y_CONTENU : Y_HAUT_SUITE;
+        yMax = o.titreSuite ? Y_MAX : Y_MAX_SUITE;
+        entete();
+      }
+      const total = o.largeurs.reduce((a, b) => a + b, 0);
+      bloc(doc, page, { x:o.x, y, w:total, h, texte:"",
+                        fond:ligne.fond || "#7f6f6c", trait:null });
+      y += h;
+      return;
+    }
     const contenu = ligne.map((cell, i) =>
       decoupe((cell && typeof cell === "object") ? cell.texte : cell,
               o.largeurs[i], taille, maxLignes));
@@ -1438,14 +1458,15 @@ function tableauPagine(doc, o){
 
 /* ---------- Cartouches de chiffres clés ---------- */
 
-function cartouche(doc, page, x, largeur, valeur, libelle, fond, ecart, sens){
-  bloc(doc, page, { x, y:Y_KPI, w:largeur, h:H_KPI, fond, texte:"", trait:null });
-  bloc(doc, page, { x, y:Y_KPI + 0.05, w:largeur, h:1.15, texte:String(valeur),
+function cartouche(doc, page, x, largeur, valeur, libelle, fond, ecart, sens, yy){
+  const y = yy == null ? Y_KPI : yy;
+  bloc(doc, page, { x, y, w:largeur, h:H_KPI, fond, texte:"", trait:null });
+  bloc(doc, page, { x, y:y + 0.05, w:largeur, h:1.15, texte:String(valeur),
                     taille:26, gras:true, couleur:"#FFFFFF", align:"center" });
-  bloc(doc, page, { x, y:Y_KPI + 1.15, w:largeur, h:0.65, texte:libelle,
+  bloc(doc, page, { x, y:y + 1.15, w:largeur, h:0.65, texte:libelle,
                     taille:10, couleur:"#FFFFFF", align:"center" });
   if(ecart != null){
-    bloc(doc, page, { x:x + largeur - 1.75, y:Y_KPI + 0.15, w:1.6, h:0.7,
+    bloc(doc, page, { x:x + largeur - 1.75, y:y + 0.15, w:1.6, h:0.7,
                       texte:formateEcart(ecart), taille:11, gras:true,
                       couleur:couleurEcart(ecart, sens), fond:"#FFFFFF", align:"center" });
   }
@@ -1645,16 +1666,18 @@ function pageP2A(doc, c){
   const somme = p.lignes.reduce((s, l) => s + l.avancement, 0);
   const global = Math.round(somme / p.lignes.length);
   const parNature = n => p.lignes.filter(l => l.nature === n).length;
-  const largeur = (LARG - 1.2) / 4;
+  bloc(doc, page, { x:2.5, y:3.9, w:5.0, h:0.6, texte:"Avancement global",
+                    taille:10, couleur:"#6F6862" });
+  image(doc, page, { x:2.5, y:4.6, w:3.1, h:3.1,
+                     base64:anneauAvancement(global, null, true) });
 
-  cartouche(doc, page, MARGE, largeur, global + " %", "d'avancement global",
-            encreAvancement(global, false), null, "neutre");
-  cartouche(doc, page, MARGE + largeur + 0.4, largeur, parNature("PEPS"), "PEPS", "#C0504D",
-            null, "neutre");
-  cartouche(doc, page, MARGE + 2 * (largeur + 0.4), largeur, parNature("AV"), "AV", "#7f6f6c",
-            null, "neutre");
-  cartouche(doc, page, MARGE + 3 * (largeur + 0.4), largeur, parNature("MEO"), "MEO", "#F79646",
-            null, "neutre");
+  const xCart = 7.7, largeur = (MARGE + LARG - xCart - 0.8) / 3, yCart = 5.5;
+  cartouche(doc, page, xCart, largeur, parNature("PEPS"), "PEPS", "#C0504D",
+            null, "neutre", yCart);
+  cartouche(doc, page, xCart + largeur + 0.4, largeur, parNature("AV"), "AV", "#7f6f6c",
+            null, "neutre", yCart);
+  cartouche(doc, page, xCart + 2 * (largeur + 0.4), largeur, parNature("MEO"), "MEO", "#F79646",
+            null, "neutre", yCart);
 
   // --- répartition groupement x statut ---
   const teintes = {
@@ -1677,7 +1700,7 @@ function pageP2A(doc, c){
       .concat([{ texte:String(membres.length), gras:true }]);
   });
 
-  let etat = tableauPagine(doc, { page, x:MARGE, y:Y_CONTENU,
+  let etat = tableauPagine(doc, { page, x:MARGE, y:9.6,
     largeurs:[8.0, 3.4, 3.4, 3.4, 3.4, 3.6],
     entetes:["Groupement", "À engager", "En cours", "Terminé", "Interrompu", "Total"],
     alignes:["start", "center", "center", "center", "center", "center"],
@@ -1701,7 +1724,8 @@ function pageP2A(doc, c){
 
   // --- détail : par groupement, chaque MEO sous son projet ---
   const detail = [];
-  groupements.forEach(g => {
+  groupements.forEach((g, indexG) => {
+    if(indexG) detail.push({ separateur:true, fond:"#C0504D", hauteur:0.22 });
     const membres = p.lignes.filter(l => l.groupement === g);
     const projets = [...new Set(membres.map(l => l.idProjet))]
       .sort((a, b) => {
@@ -1721,8 +1745,8 @@ function pageP2A(doc, c){
       if(projet){
         detail.push([
           { texte: premier ? g : "", gras:true },
-          { texte:projet.libelle, gras:true },
-          { texte:projet.nature, gras:true },
+          projet.libelle,
+          projet.nature,
           projet.porteur,
           { texte:projet.avancement + " %", gras:true,
             couleur:encreAvancement(projet.avancement, projet.interrompu) }
@@ -1731,15 +1755,15 @@ function pageP2A(doc, c){
         // Action rattachée à un projet hors sélection : on rappelle son intitulé.
         detail.push([
           { texte: premier ? g : "", gras:true },
-          { texte:fratrie[0].libelleProjet || "Projet non sélectionné", gras:true,
-            couleur:"#8a827c" },
+          { texte:fratrie[0].libelleProjet || "Projet non sélectionné", couleur:"#8a827c" },
           "", "", ""
         ]);
       }
       premier = false;
       actions.forEach(a => detail.push([
         "", "— " + a.libelle, a.nature, a.porteur,
-        { texte:a.avancement + " %", couleur:encreAvancement(a.avancement, a.interrompu) }
+        { texte:a.avancement + " %", gras:true,
+          couleur:encreAvancement(a.avancement, a.interrompu) }
       ]));
     });
   });
