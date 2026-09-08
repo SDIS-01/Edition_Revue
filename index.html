@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-48</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-50</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -2058,7 +2058,9 @@ function blocFocusPdf(doc, ctx, y, jeu){
       doc.text(c.titre, c.x + c.l / 2, yy + 7, { align:"center" });
     }
   };
-  const titreFocus = "Focus " + (jeu.libelleFocus || jeu.axe + " et statut");
+  const focus = jeu.focus || { categories:jeu.categories, croise:jeu.croise };
+  const titreFocus = "Focus " +
+    (focus.libelle || jeu.libelleFocus || jeu.axe + " et statut");
   doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
   doc.text(titreFocus, MARGE_P, y);
   entetes(y);
@@ -2067,9 +2069,9 @@ function blocFocusPdf(doc, ctx, y, jeu){
   let page = doc.internal.getNumberOfPages();
   // La hauteur de ligne se resserre pour que le bloc tienne sur la page de synthèse.
   const place = basDe(doc) - (y + 11);
-  const pas = Math.max(6.4, Math.min(11, place / Math.max(1, jeu.categories.length)));
+  const pas = Math.max(6.4, Math.min(11, place / Math.max(1, focus.categories.length)));
   const hauteur = pas - 1.5;
-  for(const cat of jeu.categories){
+  for(const cat of focus.categories){
     if(ligne + hauteur > basDe(doc)){
       const yy = nouvelleFeuillePdf(doc, ctx);
       page = doc.internal.getNumberOfPages();
@@ -2085,7 +2087,7 @@ function blocFocusPdf(doc, ctx, y, jeu){
     doc.text(doc.splitTextToSize(cat.libelle, 60)[0], MARGE_P + 5, ligne + hauteur / 2 + 1.2);
     for(const c of COLONNES_FOCUS){
       const s = statutParCle(c.cle);
-      const n = (jeu.croise[cat.cle] || {})[c.cle] || 0;
+      const n = (focus.croise[cat.cle] || {})[c.cle] || 0;
       doc.setFillColor(...s.fond);
       doc.rect(c.x, ligne, c.l, hauteur, "F");
       doc.setFontSize(pas < 9 ? 8.5 : (c.principal ? 10 : 9));
@@ -2246,7 +2248,11 @@ function pageDetailPdf(doc, ctx, jeu){
     if(!membres.length) continue;
 
     y = assurerPlace(doc, ctx, y, 30);
-    ancres.set(cat.cle, { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 8) });
+    const repere = { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 8) };
+    ancres.set(cat.cle, repere);
+    // Un focus peut viser le seul préfixe (groupement, priorité) sans la nature.
+    const prefixe = String(cat.cle).split(" · ")[0];
+    if(prefixe !== cat.cle && !ancres.has(prefixe)) ancres.set(prefixe, repere);
 
     // En-tête de groupe : nom de la catégorie et intitulés de colonnes sur la même ligne.
     doc.setFillColor(...cat.couleur);
@@ -2262,8 +2268,10 @@ function pageDetailPdf(doc, ctx, jeu){
     for(const rang of STATUTS_P){
       const sous = membres.filter(l => l.statut === rang.cle);
       if(!sous.length) continue;
-      ancres.set(cat.cle + "|" + rang.cle,
-                 { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 8) });
+      const cible = { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 8) };
+      ancres.set(cat.cle + "|" + rang.cle, cible);
+      const clePrefixe = String(cat.cle).split(" · ")[0] + "|" + rang.cle;
+      if(!ancres.has(clePrefixe)) ancres.set(clePrefixe, cible);
 
       for(const r of sous){
         doc.setFontSize(7.5);
@@ -2305,9 +2313,11 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
   doc.text("Sommaire", MARGE_P, y);
   y += 9;
 
-  const categories = [...jeu.categories].sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
+  const champ = jeu.sommaireCle || "categorie";
+  const categories = [...(jeu.categoriesSommaire || jeu.categories)]
+    .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
   for(const cat of categories){
-    const membres = jeu.lignes.filter(l => l.categorie === cat.cle)
+    const membres = jeu.lignes.filter(l => l[champ] === cat.cle)
       .sort((a, b) => String(a.libelle).localeCompare(String(b.libelle), "fr"));
     if(!membres.length) continue;
     if(y > bas - 14) y = nouvelleFeuillePdf(doc, ctx);
@@ -2516,6 +2526,18 @@ function jeuP2A(c){
     titreDetail: "Détail des projets et actions P2A",
     champs: champsDetail({ id:"p2a" })
   });
+
+  // Focus et sommaire par groupement seul : la nature n'y est pas distinguée.
+  const catGroupes = groupements.map(g => ({ cle:g, libelle:g, couleur:teinte[g] }));
+  const croiseGroupes = {};
+  groupements.forEach(g => {
+    croiseGroupes[g] = {};
+    STATUTS_P.forEach(s => croiseGroupes[g][s.cle] =
+      lignes.filter(l => l.groupement === g && l.statut === s.cle).length);
+  });
+  jeu.focus = { categories:catGroupes, croise:croiseGroupes, libelle:"groupement et statut" };
+  jeu.categoriesSommaire = catGroupes;
+  jeu.sommaireCle = "groupement";
 
   // Camembert par nature.
   const naturesVues = [...new Set(lignes.map(l => l.nature))]
