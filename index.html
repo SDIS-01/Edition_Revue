@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-34</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-35</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1253,7 +1253,7 @@ function camembert(parts, titre){
     const pct = Math.round((p.valeur / total) * 100);
     let texte = p.nom + " — " + p.valeur + " (" + pct + " %)";
     while(texte.length > 8 && g.measureText(texte).width > dispo){
-      texte = texte.slice(0, texte.length - 2) + "…";
+      texte = texte.slice(0, texte.length - 2).replace(/…$/, "") + "…";
     }
     g.fillText(texte, xTexte, y);
   });
@@ -1989,6 +1989,18 @@ function nettoiePdf(valeur){
 /* Découpe une valeur de cellule en lignes qui tiennent toutes dans la colonne.
    Le texte des commentaires vient de Grist : il peut contenir des retours à la
    ligne, des tabulations et des mots plus longs que la colonne. */
+/* Raccourcit un texte jusqu'à ce qu'il tienne dans la largeur donnée.
+   On retire des caractères au texte de base et on rajoute les points de
+   suspension à la fin : sans quoi la chaîne s'allonge à chaque tour. */
+function tronqueA(doc, texte, largeur){
+  let base = String(texte).replace(/\s*\.\.\.$/, "");
+  if(doc.getTextWidth(base) <= largeur) return base;
+  while(base.length > 1 && doc.getTextWidth(base + "...") > largeur){
+    base = base.slice(0, -1);
+  }
+  return base + "...";
+}
+
 function lignesCellule(doc, valeur, largeur, maxLignes){
   const propre = nettoiePdf(valeur);
   let lignes = [];
@@ -2001,19 +2013,13 @@ function lignesCellule(doc, valeur, largeur, maxLignes){
     }
   }
   // Filet de sécurité : aucune ligne ne doit dépasser la largeur de la colonne.
-  lignes = lignes.map(t => {
-    let s = t;
-    while(s.length > 1 && doc.getTextWidth(s) > largeur) s = s.slice(0, -2) + "...";
-    return s;
-  });
+  lignes = lignes.map(t => tronqueA(doc, t, largeur));
   const complet = propre.trim();
   if(complet && lignes.join(" ").replace(/\.\.\./g, "").length <
      complet.replace(/\s+/g, " ").length - 1){
     const i = lignes.length - 1;
     if(i >= 0 && !/\.\.\.$/.test(lignes[i])){
-      let s = lignes[i] + " ...";
-      while(s.length > 1 && doc.getTextWidth(s) > largeur) s = s.slice(0, -2) + "...";
-      lignes[i] = s;
+      lignes[i] = tronqueA(doc, lignes[i] + " ...", largeur);
     }
   }
   return lignes.length ? lignes : [""];
