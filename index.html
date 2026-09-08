@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-37</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-38</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -829,6 +829,7 @@ async function chargeHistorique(){
           libelle: txt(l.Libelle) || "(sans nom)",
           annee: l.Annee,
           type: txt(l.Type_Revue) || (donnees && donnees.type) || "",
+          groupement: txt(l.Groupement) || (donnees && donnees.groupement) || "",
           perimetre: txt(l.Perimetre),
           donnees
         };
@@ -844,12 +845,21 @@ async function chargeHistorique(){
 
 function construitComparaison(){
   const a = $("revA"), b = $("revB");
-  const filtre = $("memeType").checked ? histo.filter(r =>
-    !r.type || r.type === (cfg.typeRevue || "complete")) : histo;
+  const type = cfg.typeRevue || "complete";
+  // Sur la revue par groupement, la référence doit porter sur le même périmètre.
+  const groupe = type === "groupement"
+    ? (cfg.groupementRevue === TOUS_GROUPEMENTS || !cfg.groupementRevue
+        ? "Tous les groupements" : cfg.groupementRevue)
+    : "";
+  const filtre = $("memeType").checked
+    ? histo.filter(r => (!r.type || r.type === type) &&
+                        (!groupe || !r.groupement || r.groupement === groupe))
+    : histo;
   const options = filtre.map(r =>
     '<option value="' + r.id + '">' +
     esc((r.date ? jjmmaaaa(r.date) + " — " : "") + r.libelle +
-        (r.type && r.type !== (cfg.typeRevue || "complete") ? " [" + r.type + "]" : "")) +
+        (r.type && r.type !== type ? " [" + r.type + "]" : "") +
+        (r.groupement && r.groupement !== groupe ? " [" + r.groupement + "]" : "")) +
     "</option>").join("");
   a.innerHTML = '<option value="actuel">Situation actuelle</option>' + options;
   b.innerHTML = '<option value="">— aucune comparaison —</option>' + options;
@@ -923,17 +933,25 @@ async function archiveEdition(){
   const libelle = $("libelleEdition").value.trim();
   if(!libelle){ alerte("Donnez un nom à l'édition avant de l'archiver."); return; }
   const t = typeCourant();
-  const perimetre = t.nom + " · P2A : " + ((cfg.p2aChoisis || []).join(", ") || "aucun") +
+  // Le groupement ne qualifie l'édition que pour la revue par groupement.
+  const groupe = t.id === "groupement"
+    ? (cfg.groupementRevue === TOUS_GROUPEMENTS || !cfg.groupementRevue
+        ? "Tous les groupements" : cfg.groupementRevue)
+    : "";
+  const perimetre = t.nom + (groupe ? " · " + groupe : "") +
+                    " · P2A : " + ((cfg.p2aChoisis || []).join(", ") || "aucun") +
                     " · Diapos : " + (cfg.diapos || []).join(", ");
   const enreg = {
     Date_Edition: Math.floor(Date.now() / 1000),
     Libelle: libelle,
     Annee: calcul.annee,
     Perimetre: perimetre,
-    Indicateurs: JSON.stringify(Object.assign({ type:t.id }, instantane(calcul)))
+    Indicateurs: JSON.stringify(Object.assign({ type:t.id, groupement:groupe },
+                                              instantane(calcul)))
   };
-  // La colonne de type est facultative : on ne l'écrit que si elle existe déjà.
+  // Les colonnes de type et de groupement sont facultatives.
   if(histoCols.includes("Type_Revue")) enreg.Type_Revue = t.id;
+  if(histoCols.includes("Groupement")) enreg.Groupement = groupe;
   try{
     await grist.docApi.applyUserActions([["AddRecord", cfg.tHisto, null, enreg]]);
     $("libelleEdition").value = "";
@@ -2763,7 +2781,8 @@ $("memeType").addEventListener("change", () => { construitComparaison(); recalcu
 ["detPorteur", "detGroupement", "detCommentaire"].forEach(id =>
   $(id).addEventListener("change", () => { cfg[id] = $(id).checked; sauve(); }));
 $("groupementRevue").addEventListener("change", () => {
-  cfg.groupementRevue = $("groupementRevue").value; sauve();
+  cfg.groupementRevue = $("groupementRevue").value;
+  sauve(); construitComparaison(); recalcule();
 });
 $("inclureAnnee").addEventListener("change", () => {
   cfg.inclureAnnee = $("inclureAnnee").checked; sauve();
