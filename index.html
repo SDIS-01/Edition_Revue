@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-33</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-07-34</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1210,33 +1210,45 @@ function manifestXML(images){
 
 /* ---------- Camembert ---------- */
 
-function camembert(parts, titre){
-  const cv = document.createElement("canvas");
-  cv.width = 900; cv.height = 560;
+/* Les deux graphiques partagent le même gabarit : titre en haut, disque de même
+   rayon au centre, légende en bas. Ils se rendent ainsi à la même échelle. */
+const GRAPH = { l:700, h:760, cx:350, cy:350, r:195, yTitre:48, yLegende:632 };
+
+function fondGraphique(cv, titre){
   const g = cv.getContext("2d");
   g.fillStyle = "#ffffff"; g.fillRect(0, 0, cv.width, cv.height);
+  g.textAlign = "center"; g.textBaseline = "middle";
+  if(titre){
+    g.fillStyle = "#26221f";
+    g.font = "bold 34px Tahoma, sans-serif";
+    g.fillText(titre, GRAPH.cx, GRAPH.yTitre);
+  }
+  return g;
+}
+
+function camembert(parts, titre){
+  const cv = document.createElement("canvas");
+  cv.width = GRAPH.l; cv.height = GRAPH.h;
+  const g = fondGraphique(cv, titre);
   const total = parts.reduce((s, p) => s + p.valeur, 0);
   if(!total) return cv.toDataURL("image/png").split(",")[1];
 
-  // Disque en haut, légende dessous : toute la largeur reste disponible pour le texte.
-  const cx = 450, cy = 215, r = 145;
   let a = -Math.PI / 2;
   parts.forEach(p => {
     const ang = (p.valeur / total) * Math.PI * 2;
-    g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, r, a, a + ang); g.closePath();
+    g.beginPath(); g.moveTo(GRAPH.cx, GRAPH.cy);
+    g.arc(GRAPH.cx, GRAPH.cy, GRAPH.r, a, a + ang); g.closePath();
     g.fillStyle = p.couleur; g.fill();
     g.strokeStyle = "#ffffff"; g.lineWidth = 4; g.stroke();
     a += ang;
   });
 
-  g.fillStyle = "#26221f";
-  if(titre){ g.font = "bold 38px Tahoma, sans-serif"; g.fillText(titre, 20, 46); }
-
-  g.font = "31px Tahoma, sans-serif";
-  const xPastille = 60, xTexte = 108, dispo = cv.width - xTexte - 20;
+  g.textAlign = "left";
+  g.font = "30px Tahoma, sans-serif";
+  const xPastille = 84, xTexte = 128, dispo = cv.width - xTexte - 20;
   parts.forEach((p, i) => {
-    const y = 440 + i * 52;
-    g.fillStyle = p.couleur; g.fillRect(xPastille, y - 26, 34, 34);
+    const y = GRAPH.yLegende + i * 52;
+    g.fillStyle = p.couleur; g.fillRect(xPastille, y - 16, 32, 32);
     g.fillStyle = "#26221f";
     const pct = Math.round((p.valeur / total) * 100);
     let texte = p.nom + " — " + p.valeur + " (" + pct + " %)";
@@ -1251,16 +1263,15 @@ function camembert(parts, titre){
 /* Anneau d'avancement : part remplie proportionnelle, pourcentage au centre. */
 function anneauAvancement(pct, libelle){
   const cv = document.createElement("canvas");
-  cv.width = cv.height = 620;
-  const g = cv.getContext("2d");
-  g.fillStyle = "#ffffff"; g.fillRect(0, 0, cv.width, cv.height);
-  const cx = 310, cy = 280, rExt = 235, rInt = 150;
+  cv.width = GRAPH.l; cv.height = GRAPH.h;
+  const g = fondGraphique(cv, libelle);
+  const rInt = GRAPH.r * 0.64;
   const part = Math.max(0, Math.min(100, pct)) / 100;
 
   const secteur = (debut, fin, couleur) => {
     g.beginPath();
-    g.arc(cx, cy, rExt, debut, fin);
-    g.arc(cx, cy, rInt, fin, debut, true);
+    g.arc(GRAPH.cx, GRAPH.cy, GRAPH.r, debut, fin);
+    g.arc(GRAPH.cx, GRAPH.cy, rInt, fin, debut, true);
     g.closePath();
     g.fillStyle = couleur; g.fill();
   };
@@ -1270,7 +1281,6 @@ function anneauAvancement(pct, libelle){
 
   g.fillStyle = "#26221f";
   g.textAlign = "center"; g.textBaseline = "middle";
-  // Corps réduit puis ajusté pour rester à l'intérieur de l'anneau.
   const valeur = Math.round(pct) + " %";
   let corps = 74;
   g.font = "bold " + corps + "px Tahoma, sans-serif";
@@ -1278,11 +1288,7 @@ function anneauAvancement(pct, libelle){
     corps -= 4;
     g.font = "bold " + corps + "px Tahoma, sans-serif";
   }
-  g.fillText(valeur, cx, cy);
-  if(libelle){
-    g.font = "34px Tahoma, sans-serif";
-    g.fillText(libelle, cx, 580);
-  }
+  g.fillText(valeur, GRAPH.cx, GRAPH.cy);
   return cv.toDataURL("image/png").split(",")[1];
 }
 
@@ -1484,9 +1490,12 @@ function pageMEC(doc, c){
             em && em.recoReste != null && em.rappelReste != null
               ? em.recoReste + em.rappelReste : null, "bas");
 
-  // Anneau d'avancement global à gauche, état d'avancement à droite.
-  const yGraph = Y_CONTENU + 0.2;
-  image(doc, page, { x:4.8, y:yGraph, w:6.4, h:6.4,
+  // Deux graphiques de même gabarit, de même taille, centrés sur la largeur.
+  const yGraph = Y_CONTENU + 0.1;
+  const lGraph = 7.0, hGraph = lGraph * GRAPH.h / GRAPH.l;   // 7,0 x 7,6
+  const xGauche = MARGE + (LARG - 2 * lGraph - 2.0) / 2;
+  const xDroite = xGauche + lGraph + 2.0;
+  image(doc, page, { x:xGauche, y:yGraph, w:lGraph, h:hGraph,
                      base64:anneauAvancement(global, "Avancement global") });
 
   const png = camembert([
@@ -1494,7 +1503,7 @@ function pageMEC(doc, c){
       couleur:"#9BBB59" },
     { nom:"En cours de réalisation", valeur:reste, couleur:"#C0504D" }
   ], "État d'avancement");
-  image(doc, page, { x:13.4, y:yGraph + 0.15, w:9.8, h:6.1, base64:png });
+  image(doc, page, { x:xDroite, y:yGraph, w:lGraph, h:hGraph, base64:png });
 
   // Matrice catégorie x statut, comme le bloc focus des PDF, aux teintes du diaporama.
   // Ordre imposé : recommandation majeure, rappel au droit principal,
@@ -1522,7 +1531,7 @@ function pageMEC(doc, c){
       .concat([{ texte:String(total), gras:true }]);
   });
 
-  tableauPagine(doc, { page, x:MARGE, y:yGraph + 7.0,
+  tableauPagine(doc, { page, x:MARGE, y:yGraph + hGraph + 0.4,
     largeurs:[8.0, 3.4, 3.4, 3.4, 3.4, 3.6],
     entetes:["Catégorie", "À engager", "En cours", "Terminé", "Interrompu", "Total"],
     alignes:["start", "center", "center", "center", "center", "center"],
