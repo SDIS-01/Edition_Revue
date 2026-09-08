@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-46</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-48</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1400,6 +1400,7 @@ function tableauPagine(doc, o){
   const maxLignes = o.maxLignes || 2;
 
   const alignes = o.alignes || [];
+  let debutTable = true;   // vrai tant qu'aucune ligne de données n'a été tracée sur la page
   const entete = () => {
     let cx = o.x;
     o.entetes.forEach((e, i) => {
@@ -1409,11 +1410,14 @@ function tableauPagine(doc, o){
       cx += o.largeurs[i];
     });
     y += 0.75;
+    debutTable = true;
   };
   entete();
 
   o.lignes.forEach((ligne, r) => {
     if(ligne && ligne.separateur){
+      // Inutile de séparer si le groupement ouvre la page.
+      if(debutTable) return;
       const h = ligne.hauteur || 0.22;
       if(y + h > yMax){
         page = nouvellePage(doc, o.titreSuite || null, null);
@@ -1438,10 +1442,17 @@ function tableauPagine(doc, o){
       y = o.titreSuite ? Y_CONTENU : Y_HAUT_SUITE;
       yMax = o.titreSuite ? Y_MAX : Y_MAX_SUITE;
       entete();
+      // Le groupement interrompu par le saut de page est rappelé en tête.
+      if(o.repriseGroupe && ligne.groupe){
+        contenu[0] = decoupe(ligne.groupe + " (suite)", o.largeurs[0], taille, maxLignes);
+      }
     }
+    debutTable = false;
     let cx = o.x;
     ligne.forEach((cell, i) => {
       const objet = cell && typeof cell === "object" ? cell : {};
+      if(i === 0 && o.repriseGroupe && contenu[0][0] &&
+         /\(suite\)$/.test(contenu[0][contenu[0].length - 1])) objet.gras = true;
       bloc(doc, page, {
         x:cx, y, w:o.largeurs[i], h:hauteur, texte:contenu[i].join("\n"), taille,
         fond: objet.fond || (r % 2 ? "#f4f2ef" : "#ffffff"),
@@ -1725,7 +1736,7 @@ function pageP2A(doc, c){
   // --- détail : par groupement, chaque MEO sous son projet ---
   const detail = [];
   groupements.forEach((g, indexG) => {
-    if(indexG) detail.push({ separateur:true, fond:"#C0504D", hauteur:0.22 });
+    if(indexG) detail.push({ separateur:true, fond:"#EDD6D5", hauteur:0.28 });
     const membres = p.lignes.filter(l => l.groupement === g);
     const projets = [...new Set(membres.map(l => l.idProjet))]
       .sort((a, b) => {
@@ -1742,8 +1753,9 @@ function pageP2A(doc, c){
       const actions = fratrie.filter(l => !l.estProjet)
         .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
 
+      const ajoute = ligne => { ligne.groupe = g; detail.push(ligne); };
       if(projet){
-        detail.push([
+        ajoute([
           { texte: premier ? g : "", gras:true },
           projet.libelle,
           projet.nature,
@@ -1753,14 +1765,14 @@ function pageP2A(doc, c){
         ]);
       }else{
         // Action rattachée à un projet hors sélection : on rappelle son intitulé.
-        detail.push([
+        ajoute([
           { texte: premier ? g : "", gras:true },
           { texte:fratrie[0].libelleProjet || "Projet non sélectionné", couleur:"#8a827c" },
           "", "", ""
         ]);
       }
       premier = false;
-      actions.forEach(a => detail.push([
+      actions.forEach(a => ajoute([
         "", "— " + a.libelle, a.nature, a.porteur,
         { texte:a.avancement + " %", gras:true,
           couleur:encreAvancement(a.avancement, a.interrompu) }
@@ -1770,6 +1782,7 @@ function pageP2A(doc, c){
 
   const pageDetail = nouvellePage(doc, "P2A — détail par groupement", null);
   tableauPagine(doc, { page:pageDetail, x:MARGE, y:Y_CONTENU - 3.2, titreSuite:null,
+    repriseGroupe:true,
     largeurs:[3.8, 11.6, 2.2, 4.0, 3.6],
     entetes:["Groupement", "Libellé", "Nature", "Porteur", "Avancement"],
     alignes:["start", "start", "center", "start", "center"],
