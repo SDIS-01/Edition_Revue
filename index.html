@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-51</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-54</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1401,6 +1401,7 @@ function tableauPagine(doc, o){
 
   const alignes = o.alignes || [];
   let debutTable = true;   // vrai tant qu'aucune ligne de données n'a été tracée sur la page
+  let dernierGroupe = null;   // groupe de la dernière ligne tracée, pour la reprise
   const entete = () => {
     let cx = o.x;
     o.entetes.forEach((e, i) => {
@@ -1444,12 +1445,13 @@ function tableauPagine(doc, o){
       y = o.titreSuite ? Y_CONTENU : Y_HAUT_SUITE;
       yMax = o.titreSuite ? Y_MAX : Y_MAX_SUITE;
       entete();
-      // Le groupement interrompu par le saut de page est rappelé en tête.
-      if(o.repriseGroupe && ligne.groupe){
+      // Reprise seulement si le groupement était déjà commencé sur la page précédente.
+      if(o.repriseGroupe && ligne.groupe && ligne.groupe === dernierGroupe){
         contenu[0] = decoupe(ligne.groupe + " (suite)", o.largeurs[0], taille, maxLignes);
       }
     }
     debutTable = false;
+    if(ligne.groupe) dernierGroupe = ligne.groupe;
     let cx = o.x;
     ligne.forEach((cell, i) => {
       const objet = cell && typeof cell === "object" ? cell : {};
@@ -1867,6 +1869,16 @@ const COLONNES_FOCUS = [
 const CAT_COULEURS = [[191,32,111],[128,100,162],[75,172,198],[0,0,145],
                       [120,140,60],[210,140,40],[90,90,150],[170,90,60]];
 
+/* Couleurs imposées pour les groupements, reprises dans l'ordre. */
+const COULEURS_GROUPEMENT = [
+  [192, 80, 77],   // rouge
+  [155,187, 89],   // vert
+  [247,150, 70],   // orange
+  [128,100,162],   // violet
+  [ 75,172,198],   // bleu
+  [191, 32,111]    // rose
+];
+
 /* Couleurs imposées pour les priorités. */
 const COULEURS_PRIORITE = [
   { motif:/^p\s*1/i,       couleur:[192, 80, 77] },   // rouge
@@ -2076,8 +2088,12 @@ function blocFocusPdf(doc, ctx, y, jeu){
   let page = doc.internal.getNumberOfPages();
   // La hauteur de ligne se resserre pour que le bloc tienne sur la page de synthèse.
   const place = basDe(doc) - (y + 11);
-  const pas = Math.max(6.4, Math.min(11, place / Math.max(1, focus.categories.length)));
-  const hauteur = pas - 1.5;
+  // On resserre jusqu'à 4,6 mm par ligne pour que tous les groupements tiennent
+  // sur la page de synthèse, en réduisant le corps en conséquence.
+  const pas = Math.max(4.6, Math.min(11, place / Math.max(1, focus.categories.length)));
+  const hauteur = pas - (pas < 7 ? 0.9 : 1.5);
+  const corpsChiffre = pas < 5.6 ? 7.5 : (pas < 7 ? 8.5 : 10);
+  const corpsLibelle = pas < 5.6 ? 6.5 : 7.5;
   for(const cat of focus.categories){
     if(ligne + hauteur > basDe(doc)){
       const yy = nouvelleFeuillePdf(doc, ctx);
@@ -2090,14 +2106,14 @@ function blocFocusPdf(doc, ctx, y, jeu){
     zones.push({ cle:cat.cle, statut:null, page, x:MARGE_P, y:ligne, l:66, h:hauteur });
     doc.setFillColor(...cat.couleur);
     doc.rect(MARGE_P, ligne + hauteur / 2 - 1.5, 3, 3, "F");
-    doc.setFontSize(7.5); doc.setTextColor(61, 61, 58);
+    doc.setFontSize(corpsLibelle); doc.setTextColor(61, 61, 58);
     doc.text(doc.splitTextToSize(cat.libelle, 60)[0], MARGE_P + 5, ligne + hauteur / 2 + 1.2);
     for(const c of COLONNES_FOCUS){
       const s = statutParCle(c.cle);
       const n = (focus.croise[cat.cle] || {})[c.cle] || 0;
       doc.setFillColor(...s.fond);
       doc.rect(c.x, ligne, c.l, hauteur, "F");
-      doc.setFontSize(pas < 9 ? 8.5 : (c.principal ? 10 : 9));
+      doc.setFontSize(c.principal ? corpsChiffre : corpsChiffre - 0.5);
       doc.setTextColor(...(n ? s.encre : VIDE_P));
       doc.text(n ? String(n) : "—", c.x + c.l / 2, ligne + hauteur / 2 + 1.4, { align:"center" });
       if(n) zones.push({ cle:cat.cle, statut:c.cle, page, x:c.x, y:ligne, l:c.l, h:hauteur });
@@ -2515,7 +2531,8 @@ function jeuP2A(c){
   const groupements = [...new Set(lignes.map(l => l.groupement))]
     .sort((a, b) => a.localeCompare(b, "fr"));
   const teinte = {};
-  groupements.forEach((g, i) => teinte[g] = CAT_COULEURS[i % CAT_COULEURS.length]);
+  groupements.forEach((g, i) =>
+    teinte[g] = COULEURS_GROUPEMENT[i % COULEURS_GROUPEMENT.length]);
 
   const categories = [...new Set(lignes.map(l => l.categorie))]
     .sort((a, b) => {
@@ -2560,7 +2577,7 @@ function jeuP2A(c){
   const choisis = [...(cfg.p2aChoisis || [])].sort();
   jeu.titreNatures = "Répartition par millésime";
   jeu.natures = choisis.map((m, i) => ({
-    libelle:m, couleur:CAT_COULEURS[(i + 4) % CAT_COULEURS.length],
+    libelle:m, couleur:COULEURS_GROUPEMENT[(i + 3) % COULEURS_GROUPEMENT.length],
     valeur: lignes.filter(l => l.millesimes.includes(m)).length
   }));
   return jeu;
