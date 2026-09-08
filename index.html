@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-54</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-55</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1747,17 +1747,25 @@ function pageP2A(doc, c){
   groupements.forEach((g, indexG) => {
     if(indexG) detail.push({ separateur:true, fond:"#EDD6D5", hauteur:0.28 });
     const membres = p.lignes.filter(l => l.groupement === g);
-    const projets = [...new Set(membres.map(l => l.idProjet))]
-      .sort((a, b) => {
-        const la = (membres.find(l => l.idProjet === a && l.estProjet) || {}).libelle ||
-                   (membres.find(l => l.idProjet === a) || {}).libelleProjet || a;
-        const lb = (membres.find(l => l.idProjet === b && l.estProjet) || {}).libelle ||
-                   (membres.find(l => l.idProjet === b) || {}).libelleProjet || b;
-        return String(la).localeCompare(String(lb), "fr");
-      });
+
+    // Clé de regroupement : l'identifiant du projet, ou la ligne elle-même
+    // lorsqu'aucun identifiant n'est renseigné, pour ne pas tout agréger sous "".
+    const cleDe = l => l.idProjet || ("seul:" + l.libelle + "|" + l.nature);
+    const titres = new Map();
+    membres.forEach(l => {
+      const cle = cleDe(l);
+      const actuel = titres.get(cle);
+      // Le libellé du projet fait foi ; à défaut celui rappelé sur ses actions.
+      if(l.estProjet) titres.set(cle, l.libelle || l.libelleProjet || cle);
+      else if(actuel === undefined) titres.set(cle, l.libelleProjet || l.libelle || cle);
+    });
+
+    const projets = [...new Set(membres.map(cleDe))]
+      .sort((a, b) => String(titres.get(a) || a)
+        .localeCompare(String(titres.get(b) || b), "fr", { numeric:true }));
     let premier = true;
     projets.forEach(id => {
-      const fratrie = membres.filter(l => l.idProjet === id);
+      const fratrie = membres.filter(l => cleDe(l) === id);
       const projet = fratrie.find(l => l.estProjet);
       const actions = fratrie.filter(l => !l.estProjet)
         .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
