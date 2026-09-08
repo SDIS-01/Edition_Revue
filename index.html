@@ -52,7 +52,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-50</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-51</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -1434,7 +1434,9 @@ function tableauPagine(doc, o){
     const contenu = ligne.map((cell, i) =>
       decoupe((cell && typeof cell === "object") ? cell.texte : cell,
               o.largeurs[i], taille, maxLignes));
-    const hauteur = 0.30 + 0.42 * Math.max(...contenu.map(c => c.length));
+    const lignesMax = Math.max(...contenu.map(c => c.length));
+    const hauteur = o.hauteurFixe && lignesMax === 1
+      ? o.hauteurFixe : 0.30 + 0.42 * lignesMax;
 
     if(y + hauteur > yMax){
       page = nouvellePage(doc, o.titreSuite || null, null);
@@ -1711,11 +1713,16 @@ function pageP2A(doc, c){
       .concat([{ texte:String(membres.length), gras:true }]);
   });
 
-  let etat = tableauPagine(doc, { page, x:MARGE, y:9.6,
+  // Le tableau remonte sous les chiffres clés et resserre ses lignes
+  // pour tenir sur la diapositive quel que soit le nombre de groupements.
+  const yTable = 8.1;
+  const hLigne = Math.min(0.72,
+    Math.max(0.48, (Y_MAX - yTable - 0.75) / Math.max(1, groupements.length)));
+  tableauPagine(doc, { page, x:MARGE, y:yTable,
     largeurs:[8.0, 3.4, 3.4, 3.4, 3.4, 3.6],
     entetes:["Groupement", "À engager", "En cours", "Terminé", "Interrompu", "Total"],
     alignes:["start", "center", "center", "center", "center", "center"],
-    titreSuite:null, lignes:matrice });
+    hauteurFixe:hLigne, titreSuite:null, lignes:matrice });
 
   // --- focus sur les lignes terminées ---
   const termines = p.lignes.filter(l => statutDeLigne(l.avancement, l.interrompu) === "termine")
