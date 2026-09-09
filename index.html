@@ -32,6 +32,10 @@
     font:inherit;background:#fff}
   select:focus,input:focus,button:focus{outline:2px solid var(--rouge);outline-offset:1px}
   .cases{display:flex;flex-wrap:wrap;gap:6px 18px}
+  .liste{max-height:190px;overflow:auto;border:1px solid var(--trait);padding:6px 8px;background:#fff}
+  .liste label{display:flex;align-items:flex-start;gap:7px;color:var(--encre);font-size:12px;
+    margin:0 0 3px;line-height:1.3}
+  .liste .nat{color:var(--attenue);font-size:11px;white-space:nowrap}
   .cases label{display:flex;align-items:center;gap:6px;color:var(--encre);font-size:13px;margin:0}
   .barre{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid var(--trait)}
   button.action{background:var(--rouge);color:#fff;border:none;padding:8px 18px;font:inherit;
@@ -52,7 +56,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-08-55</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-60</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -128,6 +132,20 @@
     </fieldset>
 
     <fieldset>
+      <legend>P2A — planning et exergue</legend>
+      <div class="cases">
+        <label><input type="checkbox" id="planningP2A" checked>
+          Inclure un planning par groupement</label>
+      </div>
+      <div style="margin-top:10px">
+        <label for="rechercheExergue">Mettre en exergue (une diapositive par élément retenu)</label>
+        <input type="text" id="rechercheExergue" placeholder="Rechercher un projet ou une action…">
+        <div class="liste" id="listeExergue"></div>
+        <p class="aide" id="etatExergue">Aucun élément retenu.</p>
+      </div>
+    </fieldset>
+
+    <fieldset>
       <legend>Diapositives</legend>
       <div class="cases" id="diapos"></div>
       <div class="cases" style="margin-top:6px">
@@ -181,6 +199,7 @@
 <div class="barre">
   <button class="action" id="btnGen">Créer le diaporama</button>
   <button class="neutre" id="btnRecharge">Recharger les données</button>
+  <button class="neutre" id="btnReinit">Réinitialiser les filtres</button>
   <span id="info" style="color:var(--attenue);font-size:12px"></span>
 </div>
 
@@ -204,7 +223,8 @@ const CHAMPS_PEPS = [
   ["colAbandon",    "Date d'abandon"],
   ["colP2A",        "Millésimes P2A"],
   ["colCommentaire","Commentaire"],
-  ["colIdProjet",   "Identifiant du projet parent"]
+  ["colIdProjet",   "Identifiant du projet parent"],
+  ["colEchPrev",    "Échéance prévisionnelle"]
 ];
 
 const CHAMPS_MEC = [
@@ -474,6 +494,7 @@ async function chargeDonnees(){
   construitP2A();
   construitFamilles();
   construitGroupements();
+  construitExergue();
   alerte(soucis.length ? "Table illisible — " + soucis.join(" · ") : "", false);
   $("etat").textContent = recPEPS.length + " lignes projets · " + recMEC.length + " recommandations";
 }
@@ -518,6 +539,7 @@ const INDICES = {
   colAbandon:["date_abandon","abandon"], colP2A:["p2a"],
   colCommentaire:["commentaire","observation","remarque"],
   colIdProjet:["id_projet_action_av","id_projet","projet_parent"],
+  colEchPrev:["ech_prev","echeance","échéance"],
   mecGroupement:["groupement"], mecCommentaire:["commentaire","observation","remarque"],
   mecLibelle:["libelle","libellé","recommandation","intitule"],
   mecType:["reccomandation_rappel","recommandation_rappel","type"],
@@ -545,6 +567,51 @@ function construitGroupements(){
   if(cfg.groupementRevue && [...sel.options].some(o => o.value === cfg.groupementRevue)){
     sel.value = cfg.groupementRevue;
   }
+}
+
+/* Liste de sélection des éléments à mettre en exergue, filtrée par la recherche. */
+function construitExergue(){
+  const zone = $("listeExergue"), filtre = $("rechercheExergue").value.trim().toLowerCase();
+  cfg.exergue = cfg.exergue || [];
+  if(!recPEPS.length || !cfg.colLibelle){
+    zone.textContent = "Choisissez d'abord la table et la colonne de libellé.";
+    return;
+  }
+  const toutes = lignesExergue();
+  const retenus = toutes.filter(l => cfg.exergue.some(id => String(id) === String(l.id)));
+  const visibles = toutes
+    .filter(l => l.libelle && (!filtre || l.libelle.toLowerCase().includes(filtre)))
+    .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr", { numeric:true }))
+    .slice(0, 200);
+  // Les éléments déjà cochés restent affichés même hors résultat de recherche.
+  const liste = retenus.concat(visibles.filter(l =>
+    !retenus.some(r => String(r.id) === String(l.id))));
+
+  zone.innerHTML = "";
+  liste.forEach(l => {
+    const lab = document.createElement("label");
+    const c = document.createElement("input");
+    c.type = "checkbox"; c.value = l.id;
+    c.checked = cfg.exergue.some(id => String(id) === String(l.id));
+    c.addEventListener("change", () => {
+      const id = String(l.id);
+      if(c.checked){ if(!cfg.exergue.some(v => String(v) === id)) cfg.exergue.push(l.id); }
+      else cfg.exergue = cfg.exergue.filter(v => String(v) !== id);
+      sauve(); majEtatExergue();
+    });
+    const nat = document.createElement("span");
+    nat.className = "nat"; nat.textContent = l.nature || "";
+    lab.append(c, document.createTextNode(l.libelle), nat);
+    zone.appendChild(lab);
+  });
+  majEtatExergue();
+}
+
+function majEtatExergue(){
+  const n = (cfg.exergue || []).length;
+  $("etatExergue").textContent = n
+    ? n + (n > 1 ? " éléments retenus." : " élément retenu.")
+    : "Aucun élément retenu.";
 }
 
 function construitP2A(){
@@ -779,7 +846,11 @@ function bilanP2A(fraction){
       interrompu: [cfg.colSuspension, cfg.colAbandon].some(c => c && versDate(l[c])),
       idProjet: idParent,
       libelleProjet: projet ? txt(projet[cfg.colLibelle]) : "",
-      estProjet: nature === "PEPS" || nature === "AV"
+      estProjet: nature === "PEPS" || nature === "AV",
+      debut: cfg.colDebut ? versDate(l[cfg.colDebut]) : null,
+      // Échéance : la date de fin si elle existe, sinon l'échéance prévisionnelle.
+      echeance: (cfg.colFin ? versDate(l[cfg.colFin]) : null) ||
+                (cfg.colEchPrev ? versDate(l[cfg.colEchPrev]) : null)
     });
   });
   lignes.sort((a, b) => a.nature.localeCompare(b.nature) || a.libelle.localeCompare(b.libelle));
@@ -1089,6 +1160,7 @@ const Y_SOUS = 3.7;       // ligne de sous-titre
 const Y_KPI = 4.3;        // chiffres clés
 const H_KPI = 1.8;
 const Y_CONTENU = 6.5;    // tableaux et graphiques
+const Y_TABLEAU_SEUL = 5.0;  // diapositive titrée ne portant qu'un tableau
 const Y_MAX = 19.7;       // bas de page utile
 const COULEUR_TITRE = "#C0504D";   // rouge de la charte, relevé sur la diapositive validée
 
@@ -1417,15 +1489,11 @@ function tableauPagine(doc, o){
 
   o.lignes.forEach((ligne, r) => {
     if(ligne && ligne.separateur){
-      // Inutile de séparer si le groupement ouvre la page.
-      if(debutTable) return;
+      // Inutile de séparer si le groupement ouvre la page. De même, un séparateur
+      // qui ne tient pas avec au moins une ligne à sa suite est abandonné :
+      // la rupture de page joue alors le rôle de séparation.
       const h = ligne.hauteur || 0.22;
-      if(y + h > yMax){
-        page = nouvellePage(doc, o.titreSuite || null, null);
-        y = o.titreSuite ? Y_CONTENU : Y_HAUT_SUITE;
-        yMax = o.titreSuite ? Y_MAX : Y_MAX_SUITE;
-        entete();
-      }
+      if(debutTable || y + h + 0.72 > yMax) return;
       const total = o.largeurs.reduce((a, b) => a + b, 0);
       bloc(doc, page, { x:o.x, y, w:total, h, texte:"",
                         fond:ligne.fond || "#7f6f6c", trait:null });
@@ -1444,6 +1512,7 @@ function tableauPagine(doc, o){
       // Sans titre, la diapositive bascule sur le gabarit à bandeau bas.
       y = o.titreSuite ? Y_CONTENU : Y_HAUT_SUITE;
       yMax = o.titreSuite ? Y_MAX : Y_MAX_SUITE;
+      if(o.titreSection) y = section(doc, page, y, o.titreSection + " (suite)");
       entete();
       // Reprise seulement si le groupement était déjà commencé sur la page précédente.
       if(o.repriseGroupe && ligne.groupe && ligne.groupe === dernierGroupe){
@@ -1505,15 +1574,16 @@ function rubrique(doc, page, x, y, w, h, titre, couleur){
 
 function pageActualites(doc, c){
   const page = nouvellePage(doc, "Actualités " + c.annee, sousTitreComparaison());
-  const hauteur = Y_MAX - Y_CONTENU;
-  const gauche = 15.0, droite = LARG - gauche - 0.4;
+  // Géométrie relevée sur la diapositive de référence.
+  const yHaut = 5.05, yBas = 18.2, hauteur = yBas - yHaut;
+  const xGauche = 1.5, lGauche = 14.9;
+  const xDroite = 16.8, lDroite = 9.75;
+  const hHaut = 6.4;    // « À venir », jusqu'à 11,45
 
-  rubrique(doc, page, MARGE, Y_CONTENU, gauche, hauteur,
-           "Faits marquants", "#C0504D");
-  rubrique(doc, page, MARGE + gauche + 0.4, Y_CONTENU, droite, hauteur / 2 - 0.2,
-           "À venir", "#7f6f6c");
-  rubrique(doc, page, MARGE + gauche + 0.4, Y_CONTENU + hauteur / 2 + 0.2, droite,
-           hauteur / 2 - 0.2, "Points d'attention", "#F79646");
+  rubrique(doc, page, xGauche, yHaut, lGauche, hauteur, "Faits marquants", "#C0504D");
+  rubrique(doc, page, xDroite, yHaut, lDroite, hHaut, "À venir", "#7f6f6c");
+  rubrique(doc, page, xDroite, yHaut + hHaut + 0.4, lDroite,
+           hauteur - hHaut - 0.4, "Points d'attention", "#F79646");
 }
 
 function pageNature(doc, c, b, titre, cle){
@@ -1554,7 +1624,8 @@ function pageNature(doc, c, b, titre, cle){
   const colonnes = [11.0, 3.2, 4.6, 3.4, 3.0];
   if(b.termines.length){
     y = section(doc, page, y, "Terminés dans l'année");
-    etat = tableauPagine(doc, { page, x:MARGE, y, titreSuite:null, largeurs:colonnes,
+    etat = tableauPagine(doc, { page, x:MARGE, y, titreSuite:null,
+      titreSection:"Terminés dans l'année", largeurs:colonnes,
       entetes:["Libellé", "Priorité", "Porteur", "Groupement", "Fin"],
       lignes:b.termines.map(t => [t.libelle, t.priorite, t.porteur, t.groupement, t.date]) });
     page = etat.page; y = etat.y + 0.7;
@@ -1564,6 +1635,7 @@ function pageNature(doc, c, b, titre, cle){
     if(y > Y_MAX - 3){ page = nouvellePage(doc, null, null); y = Y_HAUT_SUITE; }
     y = section(doc, page, y, "Interrompus dans l'année");
     tableauPagine(doc, { page, x:MARGE, y, titreSuite:null,
+      titreSection:"Interrompus dans l'année",
       largeurs:[7.8, 2.6, 4.0, 7.8, 3.0], maxLignes:3,
       entetes:["Libellé", "Priorité", "Porteur", "Motif", "Date"],
       lignes:b.interrompus.map(t => [t.libelle, t.priorite, t.porteur, t.motif, t.date]) });
@@ -1653,7 +1725,7 @@ function pageMEC(doc, c){
       rangListe(a) - rangListe(b) || String(a.libelle).localeCompare(String(b.libelle), "fr"));
 
     const suite = nouvellePage(doc, "MEC 2023 — en cours de réalisation", null);
-    tableauPagine(doc, { page:suite, x:MARGE, y:Y_CONTENU,
+    tableauPagine(doc, { page:suite, x:MARGE, y:Y_TABLEAU_SEUL,
       largeurs:[13.0, 5.4, 3.8, 3.0],
       entetes:["Libellé", "Catégorie", "Porteur", "Avancement"],
       titreSuite:null,
@@ -1806,6 +1878,253 @@ function pageP2A(doc, c){
     lignes:detail });
 }
 
+
+/* ================================================================== */
+/* P2A — plannings par groupement et diapositives d'exergue            */
+/* ================================================================== */
+
+const FRISE = {
+  xLabel: 1.4, lLabel: 8.6,     // colonne des libellés
+  xFrise: 10.2, lFrise: 16.4,   // zone de la frise
+  hLigne: 0.55, hEntete: 0.9
+};
+
+const FOND_BARRE = "#EDEBE4";
+
+function couleurStatut(avancement, interrompu){
+  if(interrompu) return "#595959";
+  if(avancement >= 100) return "#9BBB59";
+  if(avancement > 0) return "#FFCC00";
+  return "#C0504D";
+}
+
+/* Bornes temporelles d'un ensemble de lignes, en millisecondes. */
+function bornesPlanning(lignes){
+  let min = null, max = null;
+  lignes.forEach(l => {
+    [l.debut, l.echeance].forEach(d => {
+      if(!d) return;
+      const t = d.getTime();
+      if(min === null || t < min) min = t;
+      if(max === null || t > max) max = t;
+    });
+  });
+  if(min === null || max === null) return null;
+  if(max - min < 86400000 * 30) max = min + 86400000 * 30;   // amplitude minimale
+  return { min, max };
+}
+
+/* Graduation : par année, ou par trimestre si l'amplitude est courte. */
+function grillePlanning(doc, page, y, hauteur, bornes){
+  const annees = (bornes.max - bornes.min) / (86400000 * 365);
+  const parTrimestre = annees <= 2.5;
+  const pos = t => FRISE.xFrise + FRISE.lFrise * (t - bornes.min) / (bornes.max - bornes.min);
+
+  const debut = new Date(bornes.min);
+  let curseur = Date.UTC(debut.getUTCFullYear(), parTrimestre
+    ? Math.floor(debut.getUTCMonth() / 3) * 3 : 0, 1);
+
+  while(curseur <= bornes.max){
+    const d = new Date(curseur);
+    const x = pos(curseur);
+    if(x >= FRISE.xFrise - 0.01 && x <= FRISE.xFrise + FRISE.lFrise){
+      bloc(doc, page, { x:x, y, w:0.03, h:hauteur, fond:"#DDD9D0", texte:"", trait:null });
+      const etiquette = parTrimestre
+        ? "T" + (Math.floor(d.getUTCMonth() / 3) + 1) + " " + String(d.getUTCFullYear()).slice(2)
+        : String(d.getUTCFullYear());
+      bloc(doc, page, { x:x - 0.9, y:y - 0.75, w:1.8, h:0.6, texte:etiquette,
+                        taille:9, couleur:"#6F6862", align:"center" });
+    }
+    curseur = parTrimestre
+      ? Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 3, 1)
+      : Date.UTC(d.getUTCFullYear() + 1, 0, 1);
+  }
+}
+
+/* Trace les lignes d'un planning. Renvoie l'ordonnée atteinte. */
+function dessineFrise(doc, page, y, lignes, bornes){
+  const pos = t => FRISE.xFrise + FRISE.lFrise * (t - bornes.min) / (bornes.max - bornes.min);
+  lignes.forEach((l, i) => {
+    const yy = y + i * FRISE.hLigne;
+    if(i % 2) bloc(doc, page, { x:FRISE.xLabel, y:yy, w:FRISE.lLabel + FRISE.lFrise + 1.6,
+                                h:FRISE.hLigne, fond:"#F7F5F1", texte:"", trait:null });
+    bloc(doc, page, { x:FRISE.xLabel + (l.action ? 0.4 : 0), y:yy,
+                      w:FRISE.lLabel - (l.action ? 0.4 : 0), h:FRISE.hLigne,
+                      texte:(l.action ? "— " : "") + l.libelle,
+                      taille:9, gras:!l.action, couleur:"#26221F" });
+
+    if(!l.debut || !l.echeance) return;
+    const x1 = pos(l.debut.getTime()), x2 = pos(l.echeance.getTime());
+    const largeur = Math.max(0.12, x2 - x1);
+    bloc(doc, page, { x:x1, y:yy + 0.12, w:largeur, h:FRISE.hLigne - 0.24,
+                      fond:FOND_BARRE, texte:"", trait:null });
+    const part = Math.max(0, Math.min(100, l.avancement)) / 100;
+    if(part > 0){
+      bloc(doc, page, { x:x1, y:yy + 0.12, w:Math.max(0.08, largeur * part),
+                        h:FRISE.hLigne - 0.24,
+                        fond:couleurStatut(l.avancement, l.interrompu), texte:"", trait:null });
+    }
+  });
+  return y + lignes.length * FRISE.hLigne;
+}
+
+/* Une ou plusieurs diapositives de planning pour un groupement. */
+function planningGroupement(doc, groupement, lignes, bornes){
+  const sansDate = lignes.filter(l => !l.debut || !l.echeance);
+  const datees = lignes.filter(l => l.debut && l.echeance);
+  const ordre = datees.concat(sansDate);
+  const parPage = Math.floor((Y_MAX - (Y_TABLEAU_SEUL + FRISE.hEntete)) / FRISE.hLigne);
+
+  for(let d = 0; d < ordre.length; d += parPage){
+    const page = nouvellePage(doc,
+      "Planning — " + groupement + (d ? " (suite)" : ""), null);
+    const y = Y_TABLEAU_SEUL + FRISE.hEntete;
+    const tranche = ordre.slice(d, d + parPage);
+    grillePlanning(doc, page, y, tranche.length * FRISE.hLigne, bornes);
+    dessineFrise(doc, page, y, tranche, bornes);
+    if(sansDate.length && d + parPage >= ordre.length){
+      bloc(doc, page, { x:FRISE.xLabel, y:y + tranche.length * FRISE.hLigne + 0.2,
+                        w:FRISE.lLabel + FRISE.lFrise, h:0.6, taille:9, couleur:"#8a827c",
+                        texte:sansDate.length + " ligne(s) sans échéance renseignée, "
+                              + "affichée(s) sans barre." });
+    }
+  }
+}
+
+function pagesPlanningP2A(doc, c){
+  if(cfg.planningP2A === false) return;
+  const p = c.p2a;
+  if(!p.lignes.length) return;
+  const bornes = bornesPlanning(p.lignes);
+  if(!bornes) return;
+
+  const groupements = [...new Set(p.lignes.map(l => l.groupement))]
+    .sort((a, b) => a.localeCompare(b, "fr"));
+
+  groupements.forEach(g => {
+    const membres = p.lignes.filter(l => l.groupement === g);
+    // Chaque projet suivi de ses actions, dans l'ordre alphabétique des projets.
+    const cleDe = l => l.idProjet || ("seul:" + l.libelle);
+    const titres = new Map();
+    membres.forEach(l => {
+      const cle = cleDe(l);
+      if(l.estProjet) titres.set(cle, l.libelle || cle);
+      else if(!titres.has(cle)) titres.set(cle, l.libelleProjet || l.libelle || cle);
+    });
+    const ordre = [...new Set(membres.map(cleDe))].sort((a, b) =>
+      String(titres.get(a) || a).localeCompare(String(titres.get(b) || b), "fr",
+                                               { numeric:true }));
+    const lignes = [];
+    ordre.forEach(cle => {
+      const fratrie = membres.filter(l => cleDe(l) === cle);
+      const projet = fratrie.find(l => l.estProjet);
+      if(projet) lignes.push(Object.assign({}, projet, { action:false }));
+      fratrie.filter(l => !l.estProjet)
+        .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr", { numeric:true }))
+        .forEach(a => lignes.push(Object.assign({}, a, { action:true })));
+    });
+    planningGroupement(doc, g, lignes, bornes);
+  });
+}
+
+/* ---------- Diapositives d'exergue ---------- */
+
+/* Toutes les lignes de la table, projets et actions, pour le sélecteur. */
+function lignesExergue(){
+  const frac = detecteFraction(recPEPS, cfg.colAvancement);
+  const projets = new Map();
+  if(cfg.colIdProjet) recPEPS.forEach(l => {
+    const nat = txt(l[cfg.colNature]).toUpperCase();
+    if(nat === "PEPS" || nat === "AV"){
+      const id = txt(l[cfg.colIdProjet]);
+      if(id) projets.set(id, l);
+    }
+  });
+  return recPEPS.map(l => {
+    const nature = txt(l[cfg.colNature]).toUpperCase();
+    const idParent = cfg.colIdProjet ? txt(l[cfg.colIdProjet]) : "";
+    const projet = projets.get(idParent);
+    return {
+      id: l.id,
+      libelle: txt(l[cfg.colLibelle]),
+      nature,
+      estProjet: nature === "PEPS" || nature === "AV",
+      idProjet: idParent,
+      libelleProjet: projet ? txt(projet[cfg.colLibelle]) : "",
+      groupement: (projet ? txt(projet[cfg.colGroupement]) : "") ||
+                  txt(l[cfg.colGroupement]) || "Non renseigné",
+      porteur: txt(l[cfg.colPorteur]),
+      priorite: txt(l[cfg.colPriorite]),
+      commentaire: txt(l[cfg.colCommentaire]),
+      avancement: versPourcent(l[cfg.colAvancement], frac),
+      debut: cfg.colDebut ? versDate(l[cfg.colDebut]) : null,
+      echeance: (cfg.colFin ? versDate(l[cfg.colFin]) : null) ||
+                (cfg.colEchPrev ? versDate(l[cfg.colEchPrev]) : null),
+      interrompu: [cfg.colSuspension, cfg.colAbandon].some(k => k && versDate(l[k]))
+    };
+  });
+}
+
+function blocInfo(doc, page, x, largeur, etiquette, valeur){
+  bloc(doc, page, { x, y:Y_TABLEAU_SEUL, w:largeur, h:0.6, texte:etiquette,
+                    taille:9, couleur:"#8a827c" });
+  bloc(doc, page, { x, y:Y_TABLEAU_SEUL + 0.55, w:largeur, h:0.8,
+                    texte:valeur || "—", taille:12, gras:true, couleur:"#26221F" });
+}
+
+function pageExergue(doc, ligne, toutes, bornes){
+  const titre = ligne.libelle || "(sans libellé)";
+  const page = nouvellePage(doc, titre,
+    ligne.estProjet ? null : "Action de " + (ligne.libelleProjet || "projet non identifié"));
+
+  image(doc, page, { x:FRISE.xLabel, y:Y_TABLEAU_SEUL, w:2.9, h:2.9,
+                     base64:anneauAvancement(ligne.avancement, null, true) });
+
+  const x0 = 5.0, l0 = (LARG + MARGE - x0 - 1.2) / 4;
+  blocInfo(doc, page, x0, l0, "Groupement", ligne.groupement);
+  blocInfo(doc, page, x0 + l0 + 0.4, l0, "Porteur", ligne.porteur);
+  blocInfo(doc, page, x0 + 2 * (l0 + 0.4), l0, "Priorité", ligne.priorite);
+  blocInfo(doc, page, x0 + 3 * (l0 + 0.4), l0,
+           ligne.estProjet ? "Échéance" : "Échéance de l'action",
+           ligne.echeance ? jjmmaaaa(ligne.echeance) : "");
+
+  let y = Y_TABLEAU_SEUL + 3.3;
+  y = section(doc, page, y, "Commentaire");
+  const actions = ligne.estProjet && ligne.idProjet
+    ? toutes.filter(l => !l.estProjet && l.idProjet === ligne.idProjet)
+        .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr", { numeric:true }))
+    : [];
+  const hCommentaire = actions.length ? 4.2 : Y_MAX - y - 0.4;
+  bloc(doc, page, { x:MARGE, y, w:LARG, h:hCommentaire, fond:"#FFFFFF", trait:"#d8d5d0",
+                    texte:ligne.commentaire || "", taille:11, vertical:"top" });
+  y += hCommentaire + 0.5;
+
+  if(actions.length && bornes){
+    y = section(doc, page, y, "Actions de mise en œuvre");
+    const place = Math.floor((Y_MAX - y - 0.2) / FRISE.hLigne);
+    const tranche = actions.slice(0, place).map(a => Object.assign({}, a, { action:true }));
+    grillePlanning(doc, page, y, tranche.length * FRISE.hLigne, bornes);
+    dessineFrise(doc, page, y, tranche, bornes);
+    if(actions.length > place){
+      bloc(doc, page, { x:FRISE.xLabel, y:y + tranche.length * FRISE.hLigne + 0.1,
+                        w:FRISE.lLabel + FRISE.lFrise, h:0.5, taille:9, couleur:"#8a827c",
+                        texte:"…et " + (actions.length - place) + " action(s) supplémentaire(s)." });
+    }
+  }
+}
+
+function pagesExergue(doc, c){
+  const choisis = cfg.exergue || [];
+  if(!choisis.length) return;
+  const toutes = lignesExergue();
+  const bornes = bornesPlanning(toutes) ||
+                 (c.p2a.lignes.length ? bornesPlanning(c.p2a.lignes) : null);
+  choisis.forEach(id => {
+    const ligne = toutes.find(l => String(l.id) === String(id));
+    if(ligne) pageExergue(doc, ligne, toutes, bornes);
+  });
+}
+
 /* ---------- Fabrication du fichier ---------- */
 
 async function genere(){
@@ -1825,7 +2144,11 @@ async function genere(){
   if(inclus.includes("d2")) pageNature(doc, c, c.peps, "PEPS", "peps");
   if(inclus.includes("d3")) pageNature(doc, c, c.av, "Actions à valoriser", "av");
   if(inclus.includes("d4")) pageMEC(doc, c);
-  if(inclus.includes("d5")) pageP2A(doc, c);
+  if(inclus.includes("d5")){
+    pageP2A(doc, c);
+    pagesPlanningP2A(doc, c);
+    pagesExergue(doc, c);
+  }
   if(doc.pages.length < 2){ alerte("Aucune diapositive sélectionnée."); return; }
 
   // On repart d'une copie du modèle : styles, masque et images de charte sont conservés.
@@ -3012,6 +3335,29 @@ $("tHisto").addEventListener("change", () =>
 $("memeType").addEventListener("change", () => { construitComparaison(); recalcule(); });
 ["detPorteur", "detGroupement", "detCommentaire"].forEach(id =>
   $(id).addEventListener("change", () => { cfg[id] = $(id).checked; sauve(); }));
+$("rechercheExergue").addEventListener("input", () => construitExergue());
+$("planningP2A").addEventListener("change", () => {
+  cfg.planningP2A = $("planningP2A").checked; sauve();
+});
+$("btnReinit").addEventListener("click", () => {
+  // Remise à zéro des filtres d'édition, sans toucher au mappage des colonnes.
+  cfg.p2aChoisis = [];
+  cfg.exergue = [];
+  cfg.groupementRevue = TOUS_GROUPEMENTS;
+  cfg.revA = "actuel"; cfg.revB = "";
+  cfg.detPorteur = cfg.detGroupement = cfg.detCommentaire = true;
+  cfg.planningP2A = true; cfg.inclureAnnee = true; cfg.intercalaires = false;
+  cfg.typeRevue = "complete";
+  $("rechercheExergue").value = "";
+  ["detPorteur", "detGroupement", "detCommentaire", "planningP2A", "inclureAnnee"]
+    .forEach(id => $(id).checked = true);
+  $("intercalaires").checked = false;
+  $("typeRevue").value = "complete";
+  appliqueType();
+  construitP2A(); construitExergue(); construitGroupements(); construitComparaison();
+  sauve(); recalcule();
+  alerte("Filtres réinitialisés.", true);
+});
 $("groupementRevue").addEventListener("change", () => {
   cfg.groupementRevue = $("groupementRevue").value;
   sauve(); construitComparaison(); recalcule();
@@ -3042,6 +3388,8 @@ async function demarre(){
     });
     if(cfg.inclureAnnee === undefined) cfg.inclureAnnee = true;
     $("inclureAnnee").checked = cfg.inclureAnnee;
+    if(cfg.planningP2A === undefined) cfg.planningP2A = true;
+    $("planningP2A").checked = cfg.planningP2A;
     construitDiapos();
     construitTypes();
     appliqueType();
