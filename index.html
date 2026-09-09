@@ -56,7 +56,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-73</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-76</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -2042,8 +2042,9 @@ function grillePlanning(doc, page, y, hauteur, ech){
    plusieurs lignes au besoin, et la rangée s'ajuste. */
 function prepareLigne(l){
   const lLabel = FRISE.lLabel - (l.action ? 0.4 : 0);
+  // Le gras dépend de la rangée, pas de la nature : on mesure au plus large.
   l._texte = decoupe((l.action ? "— " : "") + l.libelle,
-                     (lLabel - 0.25) * 0.94, 9, 4, !l.action);
+                     (lLabel - 0.25) * 0.94, 9, 4, true);
   l._hauteur = Math.max(FRISE.hLigne, 0.18 + 0.36 * l._texte.length);
   return l._hauteur;
 }
@@ -2054,13 +2055,15 @@ function dessineFrise(doc, page, y, lignes, ech){
   let yy = y;
   lignes.forEach((l, i) => {
     const h = l._hauteur || prepareLigne(l);
-    if(i % 2) bloc(doc, page, { x:FRISE.xLabel, y:yy,
+    // Une rangée sur deux est grisée ; son intitulé est mis en gras.
+    const bande = i % 2 === 1;
+    if(bande) bloc(doc, page, { x:FRISE.xLabel, y:yy,
                                 w:FRISE.xFrise + FRISE.lFrise - FRISE.xLabel,
                                 h, fond:"#F7F5F1", texte:"", trait:null });
     const lLabel = FRISE.lLabel - (l.action ? 0.4 : 0);
     bloc(doc, page, { x:FRISE.xLabel + (l.action ? 0.4 : 0), y:yy,
                       w:lLabel, h, texte:l._texte.join("\n"),
-                      taille:9, gras:!l.action, couleur:"#26221F", vertical:"middle" });
+                      taille:9, gras:bande, couleur:"#26221F", vertical:"middle" });
 
     if(l.sansBarre || !l.debut || !l.echeance){ yy += h; return; }
     const x1 = pos(l.debut.getTime()), x2 = pos(l.echeance.getTime());
@@ -2119,13 +2122,10 @@ function tachesDe(idAction, libelle){
     .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr", { numeric:true }));
 }
 
-/* Feuilles à porter sur le planning : les actions d'un projet, à défaut ses
-   tâches, à défaut le projet lui-même. */
+/* Feuilles à porter sur le planning d'un groupement : uniquement les actions.
+   Les tâches, elles, ne figurent que sur les fiches de focus. */
 function feuillesDe(projet, actions){
-  if(actions && actions.length) return actions.map(a => Object.assign({}, a, { action:true }));
-  const taches = projet ? tachesDe(projet.idAction, projet.libelle) : [];
-  if(taches.length) return taches;
-  return [];
+  return (actions || []).map(a => Object.assign({}, a, { action:true }));
 }
 
 /* Une ou plusieurs diapositives de planning pour un groupement. */
@@ -2298,11 +2298,20 @@ function pageExergue(doc, ligne, toutes, ech){
     ? toutes.filter(l => !l.estProjet && l.idProjet === ligne.idProjet)
         .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr", { numeric:true }))
     : [];
-  const actions = enfants.length
-    ? enfants.map(a => Object.assign({}, a, { action:true }))
-    : tachesDe(ligne.idAction, ligne.libelle);
-  const titreEnfants = enfants.length ? "Actions de mise en œuvre" : "Tâches";
+  let actions;
+  let titreEnfants;
+  if(enfants.length){
+    actions = enfants.map(a => Object.assign({}, a, { action:true }));
+    titreEnfants = "Actions de mise en œuvre";
+  }else{
+    const taches = tachesDe(ligne.idAction, ligne.libelle);
+    // La ligne elle-même ouvre la frise, ses tâches viennent en dessous.
+    actions = taches.length
+      ? [Object.assign({}, ligne, { action:false })].concat(taches) : [];
+    titreEnfants = "Tâches";
+  }
 
+  const H_COMMENTAIRE = 2.5;   // hauteur relevée sur la fiche de référence
   let y = yHaut + 3.0;
   if(!ligne.estProjet){
     // Rattachement rappelé au-dessus du commentaire, hors de la zone des repères.
@@ -2311,13 +2320,9 @@ function pageExergue(doc, ligne, toutes, ech){
     y += 0.6;
   }
   y = section(doc, page, y, "Commentaire");
-  // Le commentaire prend la place restante une fois les actions logées.
-  const hActions = actions.length
-    ? Math.min(actions.reduce((s, l) => s + prepareLigne(l), 0), 10.5) + 1.7 : 0;
-  const hCommentaire = Math.max(2.0, Math.min(4.2, Y_MAX - y - hActions - 0.4));
-  bloc(doc, page, { x:MARGE, y, w:LARG, h:hCommentaire, fond:"#FFFFFF", trait:"#d8d5d0",
+  bloc(doc, page, { x:MARGE, y, w:LARG, h:H_COMMENTAIRE, fond:"#FFFFFF", trait:"#d8d5d0",
                     texte:ligne.commentaire || "", taille:11, vertical:"top" });
-  y += hCommentaire + 0.4;
+  y += H_COMMENTAIRE + 0.4;
 
   if(actions.length && ech){
     y = section(doc, page, y, titreEnfants) + 0.75;
