@@ -56,7 +56,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-76</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-77</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -2042,9 +2042,8 @@ function grillePlanning(doc, page, y, hauteur, ech){
    plusieurs lignes au besoin, et la rangée s'ajuste. */
 function prepareLigne(l){
   const lLabel = FRISE.lLabel - (l.action ? 0.4 : 0);
-  // Le gras dépend de la rangée, pas de la nature : on mesure au plus large.
   l._texte = decoupe((l.action ? "— " : "") + l.libelle,
-                     (lLabel - 0.25) * 0.94, 9, 4, true);
+                     (lLabel - 0.25) * 0.94, 9, 4, !l.action);
   l._hauteur = Math.max(FRISE.hLigne, 0.18 + 0.36 * l._texte.length);
   return l._hauteur;
 }
@@ -2055,8 +2054,9 @@ function dessineFrise(doc, page, y, lignes, ech){
   let yy = y;
   lignes.forEach((l, i) => {
     const h = l._hauteur || prepareLigne(l);
-    // Une rangée sur deux est grisée ; son intitulé est mis en gras.
-    const bande = i % 2 === 1;
+    // Les lignes mères — projet, ou action portant des tâches — sont en gras
+    // sur fond gris ; leurs enfants restent en romain sur fond blanc.
+    const bande = !l.action;
     if(bande) bloc(doc, page, { x:FRISE.xLabel, y:yy,
                                 w:FRISE.xFrise + FRISE.lFrise - FRISE.xLabel,
                                 h, fond:"#F7F5F1", texte:"", trait:null });
@@ -2301,7 +2301,9 @@ function pageExergue(doc, ligne, toutes, ech){
   let actions;
   let titreEnfants;
   if(enfants.length){
-    actions = enfants.map(a => Object.assign({}, a, { action:true }));
+    // Le projet ouvre la frise, ses actions viennent en dessous.
+    actions = [Object.assign({}, ligne, { action:false })]
+      .concat(enfants.map(a => Object.assign({}, a, { action:true })));
     titreEnfants = "Actions de mise en œuvre";
   }else{
     const taches = tachesDe(ligne.idAction, ligne.libelle);
