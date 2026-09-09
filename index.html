@@ -56,7 +56,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-60</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-62</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -132,13 +132,13 @@
     </fieldset>
 
     <fieldset>
-      <legend>P2A — planning et exergue</legend>
+      <legend>P2A - Planning et Focus projet</legend>
       <div class="cases">
         <label><input type="checkbox" id="planningP2A" checked>
           Inclure un planning par groupement</label>
       </div>
       <div style="margin-top:10px">
-        <label for="rechercheExergue">Mettre en exergue (une diapositive par élément retenu)</label>
+        <label for="rechercheExergue">Projets ou actions en focus (une diapositive chacun)</label>
         <input type="text" id="rechercheExergue" placeholder="Rechercher un projet ou une action…">
         <div class="liste" id="listeExergue"></div>
         <p class="aide" id="etatExergue">Aucun élément retenu.</p>
@@ -1898,47 +1898,28 @@ function couleurStatut(avancement, interrompu){
   return "#C0504D";
 }
 
-/* Bornes temporelles d'un ensemble de lignes, en millisecondes. */
-function bornesPlanning(lignes){
-  let min = null, max = null;
-  lignes.forEach(l => {
-    [l.debut, l.echeance].forEach(d => {
-      if(!d) return;
-      const t = d.getTime();
-      if(min === null || t < min) min = t;
-      if(max === null || t > max) max = t;
-    });
-  });
-  if(min === null || max === null) return null;
-  if(max - min < 86400000 * 30) max = min + 86400000 * 30;   // amplitude minimale
-  return { min, max };
+/* Fenêtre du planning : les quatre trimestres de l'année de référence et les
+   deux premiers de la suivante. Les barres sont rognées à cette fenêtre. */
+function bornesPlanning(annee){
+  return { min: Date.UTC(annee, 0, 1), max: Date.UTC(annee + 1, 6, 1) };
 }
 
-/* Graduation : par année, ou par trimestre si l'amplitude est courte. */
 function grillePlanning(doc, page, y, hauteur, bornes){
-  const annees = (bornes.max - bornes.min) / (86400000 * 365);
-  const parTrimestre = annees <= 2.5;
   const pos = t => FRISE.xFrise + FRISE.lFrise * (t - bornes.min) / (bornes.max - bornes.min);
-
-  const debut = new Date(bornes.min);
-  let curseur = Date.UTC(debut.getUTCFullYear(), parTrimestre
-    ? Math.floor(debut.getUTCMonth() / 3) * 3 : 0, 1);
-
-  while(curseur <= bornes.max){
+  let curseur = bornes.min;
+  while(curseur < bornes.max){
     const d = new Date(curseur);
     const x = pos(curseur);
-    if(x >= FRISE.xFrise - 0.01 && x <= FRISE.xFrise + FRISE.lFrise){
-      bloc(doc, page, { x:x, y, w:0.03, h:hauteur, fond:"#DDD9D0", texte:"", trait:null });
-      const etiquette = parTrimestre
-        ? "T" + (Math.floor(d.getUTCMonth() / 3) + 1) + " " + String(d.getUTCFullYear()).slice(2)
-        : String(d.getUTCFullYear());
-      bloc(doc, page, { x:x - 0.9, y:y - 0.75, w:1.8, h:0.6, texte:etiquette,
-                        taille:9, couleur:"#6F6862", align:"center" });
-    }
-    curseur = parTrimestre
-      ? Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 3, 1)
-      : Date.UTC(d.getUTCFullYear() + 1, 0, 1);
+    const suivant = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 3, 1);
+    const largeur = pos(Math.min(suivant, bornes.max)) - x;
+    bloc(doc, page, { x, y, w:0.03, h:hauteur, fond:"#DDD9D0", texte:"", trait:null });
+    bloc(doc, page, { x, y:y - 0.75, w:largeur, h:0.6,
+                      texte:"T" + (Math.floor(d.getUTCMonth() / 3) + 1) + " " + d.getUTCFullYear(),
+                      taille:9, couleur:"#6F6862", align:"center" });
+    curseur = suivant;
   }
+  bloc(doc, page, { x:FRISE.xFrise + FRISE.lFrise, y, w:0.03, h:hauteur,
+                    fond:"#DDD9D0", texte:"", trait:null });
 }
 
 /* Trace les lignes d'un planning. Renvoie l'ordonnée atteinte. */
@@ -1948,13 +1929,18 @@ function dessineFrise(doc, page, y, lignes, bornes){
     const yy = y + i * FRISE.hLigne;
     if(i % 2) bloc(doc, page, { x:FRISE.xLabel, y:yy, w:FRISE.lLabel + FRISE.lFrise + 1.6,
                                 h:FRISE.hLigne, fond:"#F7F5F1", texte:"", trait:null });
+    const lLabel = FRISE.lLabel - (l.action ? 0.4 : 0);
     bloc(doc, page, { x:FRISE.xLabel + (l.action ? 0.4 : 0), y:yy,
-                      w:FRISE.lLabel - (l.action ? 0.4 : 0), h:FRISE.hLigne,
-                      texte:(l.action ? "— " : "") + l.libelle,
+                      w:lLabel, h:FRISE.hLigne,
+                      // Une seule ligne : la hauteur de rang est fixe.
+                      texte:decoupe((l.action ? "— " : "") + l.libelle, lLabel, 9, 1)[0],
                       taille:9, gras:!l.action, couleur:"#26221F" });
 
     if(!l.debut || !l.echeance) return;
-    const x1 = pos(l.debut.getTime()), x2 = pos(l.echeance.getTime());
+    const t1 = Math.max(l.debut.getTime(), bornes.min);
+    const t2 = Math.min(l.echeance.getTime(), bornes.max);
+    if(t2 <= bornes.min || t1 >= bornes.max) return;   // hors fenêtre
+    const x1 = pos(t1), x2 = pos(t2);
     const largeur = Math.max(0.12, x2 - x1);
     bloc(doc, page, { x:x1, y:yy + 0.12, w:largeur, h:FRISE.hLigne - 0.24,
                       fond:FOND_BARRE, texte:"", trait:null });
@@ -1978,7 +1964,7 @@ function planningGroupement(doc, groupement, lignes, bornes){
   for(let d = 0; d < ordre.length; d += parPage){
     const page = nouvellePage(doc,
       "Planning — " + groupement + (d ? " (suite)" : ""), null);
-    const y = Y_TABLEAU_SEUL + FRISE.hEntete;
+    const y = Y_TABLEAU_SEUL + FRISE.hEntete;   // laisse la place aux trimestres
     const tranche = ordre.slice(d, d + parPage);
     grillePlanning(doc, page, y, tranche.length * FRISE.hLigne, bornes);
     dessineFrise(doc, page, y, tranche, bornes);
@@ -1995,8 +1981,7 @@ function pagesPlanningP2A(doc, c){
   if(cfg.planningP2A === false) return;
   const p = c.p2a;
   if(!p.lignes.length) return;
-  const bornes = bornesPlanning(p.lignes);
-  if(!bornes) return;
+  const bornes = bornesPlanning(c.annee);
 
   const groupements = [...new Set(p.lignes.map(l => l.groupement))]
     .sort((a, b) => a.localeCompare(b, "fr"));
@@ -2065,11 +2050,27 @@ function lignesExergue(){
   });
 }
 
-function blocInfo(doc, page, x, largeur, etiquette, valeur){
-  bloc(doc, page, { x, y:Y_TABLEAU_SEUL, w:largeur, h:0.6, texte:etiquette,
+/* Couleurs de priorité, version hexadécimale pour le diaporama. */
+const HEX_PRIORITE = [
+  { motif:/^p\s*1/i,    fond:"#C0504D" },
+  { motif:/^p\s*2/i,    fond:"#F79646" },
+  { motif:/^p\s*3/i,    fond:"#FFCC00" },
+  { motif:/poursuite/i, fond:"#8064A2" }
+];
+
+function blocInfo(doc, page, x, y, largeur, etiquette, valeur, priorite){
+  bloc(doc, page, { x, y, w:largeur, h:0.55, texte:etiquette,
                     taille:9, couleur:"#8a827c" });
-  bloc(doc, page, { x, y:Y_TABLEAU_SEUL + 0.55, w:largeur, h:0.8,
-                    texte:valeur || "—", taille:12, gras:true, couleur:"#26221F" });
+  if(priorite){
+    const t = HEX_PRIORITE.find(c => c.motif.test(String(valeur || "")));
+    bloc(doc, page, { x, y:y + 0.5, w:Math.min(largeur, 3.2), h:0.8,
+                      texte:valeur || "—", taille:12, gras:true,
+                      couleur:t ? "#FFFFFF" : "#26221F",
+                      fond:t ? t.fond : "#F4F2EF", align:"center" });
+  }else{
+    bloc(doc, page, { x, y:y + 0.5, w:largeur, h:0.8,
+                      texte:valeur || "—", taille:12, gras:true, couleur:"#26221F" });
+  }
 }
 
 function pageExergue(doc, ligne, toutes, bornes){
@@ -2077,30 +2078,35 @@ function pageExergue(doc, ligne, toutes, bornes){
   const page = nouvellePage(doc, titre,
     ligne.estProjet ? null : "Action de " + (ligne.libelleProjet || "projet non identifié"));
 
-  image(doc, page, { x:FRISE.xLabel, y:Y_TABLEAU_SEUL, w:2.9, h:2.9,
+  const yHaut = 3.9;
+  image(doc, page, { x:FRISE.xLabel, y:yHaut, w:2.6, h:2.6,
                      base64:anneauAvancement(ligne.avancement, null, true) });
 
-  const x0 = 5.0, l0 = (LARG + MARGE - x0 - 1.2) / 4;
-  blocInfo(doc, page, x0, l0, "Groupement", ligne.groupement);
-  blocInfo(doc, page, x0 + l0 + 0.4, l0, "Porteur", ligne.porteur);
-  blocInfo(doc, page, x0 + 2 * (l0 + 0.4), l0, "Priorité", ligne.priorite);
-  blocInfo(doc, page, x0 + 3 * (l0 + 0.4), l0,
+  const x0 = 4.6, l0 = (LARG + MARGE - x0 - 1.2) / 4;
+  blocInfo(doc, page, x0, yHaut + 0.2, l0, "Groupement", ligne.groupement);
+  blocInfo(doc, page, x0 + l0 + 0.4, yHaut + 0.2, l0, "Porteur", ligne.porteur);
+  blocInfo(doc, page, x0 + 2 * (l0 + 0.4), yHaut + 0.2, l0, "Priorité", ligne.priorite, true);
+  blocInfo(doc, page, x0 + 3 * (l0 + 0.4), yHaut + 0.2, l0,
            ligne.estProjet ? "Échéance" : "Échéance de l'action",
            ligne.echeance ? jjmmaaaa(ligne.echeance) : "");
 
-  let y = Y_TABLEAU_SEUL + 3.3;
-  y = section(doc, page, y, "Commentaire");
   const actions = ligne.estProjet && ligne.idProjet
     ? toutes.filter(l => !l.estProjet && l.idProjet === ligne.idProjet)
         .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr", { numeric:true }))
     : [];
-  const hCommentaire = actions.length ? 4.2 : Y_MAX - y - 0.4;
+
+  let y = yHaut + 3.0;
+  y = section(doc, page, y, "Commentaire");
+  // Le commentaire prend la place restante une fois les actions logées.
+  const hActions = actions.length
+    ? Math.min(actions.length, 14) * FRISE.hLigne + 1.7 : 0;
+  const hCommentaire = Math.max(2.4, Y_MAX - y - hActions - 0.4);
   bloc(doc, page, { x:MARGE, y, w:LARG, h:hCommentaire, fond:"#FFFFFF", trait:"#d8d5d0",
                     texte:ligne.commentaire || "", taille:11, vertical:"top" });
-  y += hCommentaire + 0.5;
+  y += hCommentaire + 0.4;
 
   if(actions.length && bornes){
-    y = section(doc, page, y, "Actions de mise en œuvre");
+    y = section(doc, page, y, "Actions de mise en œuvre") + 0.75;
     const place = Math.floor((Y_MAX - y - 0.2) / FRISE.hLigne);
     const tranche = actions.slice(0, place).map(a => Object.assign({}, a, { action:true }));
     grillePlanning(doc, page, y, tranche.length * FRISE.hLigne, bornes);
@@ -2117,8 +2123,7 @@ function pagesExergue(doc, c){
   const choisis = cfg.exergue || [];
   if(!choisis.length) return;
   const toutes = lignesExergue();
-  const bornes = bornesPlanning(toutes) ||
-                 (c.p2a.lignes.length ? bornesPlanning(c.p2a.lignes) : null);
+  const bornes = bornesPlanning(c.annee);
   choisis.forEach(id => {
     const ligne = toutes.find(l => String(l.id) === String(id));
     if(ligne) pageExergue(doc, ligne, toutes, bornes);
