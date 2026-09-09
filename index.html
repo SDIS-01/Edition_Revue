@@ -56,7 +56,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-67</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-71</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -627,14 +627,22 @@ function construitExergue(){
   const correspond = l => !filtre ||
     l.libelle.toLowerCase().includes(filtre) ||
     String(l.libelleProjet || "").toLowerCase().includes(filtre);
-  // Tri : chaque projet suivi de ses actions.
-  const cle = l => (l.libelleProjet || l.libelle) + (l.estProjet ? "\\u0000" : "\\u0001") + l.libelle;
+  // Tri à deux niveaux : d'abord le projet parent, puis le projet avant ses
+  // actions. Un tri par concaténation ne convient pas : le séparateur employé
+  // était pris pour du texte et faussait l'ordre.
+  const compare = (a, b) => {
+    const pa = a.libelleProjet || a.libelle, pb = b.libelleProjet || b.libelle;
+    const r = String(pa).localeCompare(String(pb), "fr", { numeric:true });
+    if(r) return r;
+    if(a.estProjet !== b.estProjet) return a.estProjet ? -1 : 1;
+    return a.libelle.localeCompare(b.libelle, "fr", { numeric:true });
+  };
   const visibles = toutes
     .filter(l => l.libelle && correspond(l))
-    .sort((a, b) => cle(a).localeCompare(cle(b), "fr", { numeric:true }))
+    .sort(compare)
     .slice(0, 300);
   // Les éléments déjà cochés restent affichés même hors résultat de recherche.
-  const liste = retenus.concat(visibles.filter(l =>
+  const liste = [...retenus].sort(compare).concat(visibles.filter(l =>
     !retenus.some(r => String(r.id) === String(l.id))));
 
   zone.innerHTML = "";
@@ -1943,13 +1951,20 @@ const FRISE = {
   hLigne: 0.55, hEntete: 0.9
 };
 
-const FOND_BARRE = "#EDEBE4";
+/* Chaque statut a sa teinte pâle pour le fond de barre et sa teinte pleine
+   pour la part réalisée. */
+const TEINTES_BARRE = {
+  termine:    { fond:"#E4EFD2", barre:"#7FA23F" },
+  "en cours": { fond:"#FFF3C4", barre:"#E8B400" },
+  "a engager":{ fond:"#F7DEDD", barre:"#C0504D" },
+  interrompu: { fond:"#E8E5DC", barre:"#595959" }
+};
 
-function couleurStatut(avancement, interrompu){
-  if(interrompu) return "#595959";
-  if(avancement >= 100) return "#9BBB59";
-  if(avancement > 0) return "#FFCC00";
-  return "#C0504D";
+function teinteBarre(avancement, interrompu){
+  if(interrompu) return TEINTES_BARRE.interrompu;
+  if(avancement >= 100) return TEINTES_BARRE.termine;
+  if(avancement > 0) return TEINTES_BARRE["en cours"];
+  return TEINTES_BARRE["a engager"];
 }
 
 /* Fenêtre du planning : les quatre trimestres de l'année de référence et les
@@ -2001,8 +2016,8 @@ function grillePlanning(doc, page, y, hauteur, ech){
                       couleur:appuye ? "#8a827c" : "#6F6862", align:"center" });
 
   if(ech.avant){
-    bloc(doc, page, { x:x0, y, w:ech.lAvant, h:hauteur, fond:"#F7F5F1",
-                      texte:"", trait:null });
+    // Pas d'aplat sur la bande : un simple trait la délimite.
+    bloc(doc, page, { x:x0, y, w:0.03, h:hauteur, fond:"#DDD9D0", texte:"", trait:null });
     etiquette(x0, ech.lAvant, ech.libelleAvant, true);
   }
   let curseur = ech.bornes.min;
@@ -2017,42 +2032,65 @@ function grillePlanning(doc, page, y, hauteur, ech){
   const xFin = x0 + ech.lAvant + ech.lQ;
   bloc(doc, page, { x:xFin, y, w:0.03, h:hauteur, fond:"#DDD9D0", texte:"", trait:null });
   if(ech.apres){
-    bloc(doc, page, { x:xFin, y, w:ech.lApres, h:hauteur, fond:"#F7F5F1",
-                      texte:"", trait:null });
+    bloc(doc, page, { x:x0 + FRISE.lFrise, y, w:0.03, h:hauteur,
+                      fond:"#DDD9D0", texte:"", trait:null });
     etiquette(xFin, ech.lApres, ech.libelleApres, true);
   }
+}
+
+/* Hauteur d'une ligne de planning : l'intitulé est écrit en entier, sur
+   plusieurs lignes au besoin, et la rangée s'ajuste. */
+function prepareLigne(l){
+  const lLabel = FRISE.lLabel - (l.action ? 0.4 : 0);
+  l._texte = decoupe((l.action ? "— " : "") + l.libelle,
+                     (lLabel - 0.25) * 0.94, 9, 4, !l.action);
+  l._hauteur = Math.max(FRISE.hLigne, 0.18 + 0.36 * l._texte.length);
+  return l._hauteur;
 }
 
 /* Trace les lignes d'un planning. Renvoie l'ordonnée atteinte. */
 function dessineFrise(doc, page, y, lignes, ech){
   const pos = ech.pos;
+  let yy = y;
   lignes.forEach((l, i) => {
-    const yy = y + i * FRISE.hLigne;
+    const h = l._hauteur || prepareLigne(l);
     if(i % 2) bloc(doc, page, { x:FRISE.xLabel, y:yy, w:FRISE.lLabel + FRISE.lFrise + 1.6,
-                                h:FRISE.hLigne, fond:"#F7F5F1", texte:"", trait:null });
+                                h, fond:"#F7F5F1", texte:"", trait:null });
     const lLabel = FRISE.lLabel - (l.action ? 0.4 : 0);
     bloc(doc, page, { x:FRISE.xLabel + (l.action ? 0.4 : 0), y:yy,
-                      w:lLabel, h:FRISE.hLigne,
-                      // Une seule ligne : la hauteur de rang est fixe et le cadre
-                      // interdit le retour à la ligne.
-                      texte:decoupe((l.action ? "— " : "") + l.libelle,
-                                    lLabel - 0.25, 9, 1, !l.action)[0],
-                      sansRetour:true,
-                      taille:9, gras:!l.action, couleur:"#26221F" });
+                      w:lLabel, h, texte:l._texte.join("\n"),
+                      taille:9, gras:!l.action, couleur:"#26221F", vertical:"middle" });
 
-    if(l.sansBarre || !l.debut || !l.echeance) return;
+    if(l.sansBarre || !l.debut || !l.echeance){ yy += h; return; }
     const x1 = pos(l.debut.getTime()), x2 = pos(l.echeance.getTime());
     const largeur = Math.max(0.12, x2 - x1);
-    bloc(doc, page, { x:x1, y:yy + 0.12, w:largeur, h:FRISE.hLigne - 0.24,
-                      fond:FOND_BARRE, texte:"", trait:null });
+    const teinte = teinteBarre(l.avancement, l.interrompu);
+    const hBarre = 0.31, yBarre = yy + (h - hBarre) / 2;
+    bloc(doc, page, { x:x1, y:yBarre, w:largeur, h:hBarre,
+                      fond:teinte.fond, texte:"", trait:null });
     const part = Math.max(0, Math.min(100, l.avancement)) / 100;
     if(part > 0){
-      bloc(doc, page, { x:x1, y:yy + 0.12, w:Math.max(0.08, largeur * part),
-                        h:FRISE.hLigne - 0.24,
-                        fond:couleurStatut(l.avancement, l.interrompu), texte:"", trait:null });
+      bloc(doc, page, { x:x1, y:yBarre, w:Math.max(0.08, largeur * part), h:hBarre,
+                        fond:teinte.barre, texte:"", trait:null });
     }
+    yy += h;
   });
-  return y + lignes.length * FRISE.hLigne;
+  return yy;
+}
+
+/* Répartit des lignes de hauteurs variables en pages. */
+function repartitLignes(lignes, hauteurDisponible){
+  const pages = [];
+  let courante = [], cumul = 0;
+  lignes.forEach(l => {
+    const h = prepareLigne(l);
+    if(courante.length && cumul + h > hauteurDisponible){
+      pages.push(courante); courante = []; cumul = 0;
+    }
+    courante.push(l); cumul += h;
+  });
+  if(courante.length) pages.push(courante);
+  return pages;
 }
 
 /* Tâches rattachées à une ligne, par son identifiant ID_Action_MEO. */
@@ -2084,25 +2122,23 @@ function feuillesDe(projet, actions){
 
 /* Une ou plusieurs diapositives de planning pour un groupement. */
 function planningGroupement(doc, groupement, lignes, ech){
-  const sansDate = lignes.filter(l => !l.debut || !l.echeance);
-  const datees = lignes.filter(l => l.debut && l.echeance);
-  const ordre = datees.concat(sansDate);
-  const parPage = Math.floor((Y_MAX - (Y_TABLEAU_SEUL + FRISE.hEntete)) / FRISE.hLigne);
+  const sansDate = lignes.filter(l => !l.sansBarre && (!l.debut || !l.echeance));
+  const y = Y_TABLEAU_SEUL + FRISE.hEntete;   // laisse la place aux trimestres
+  const tranches = repartitLignes(lignes, Y_MAX - y - 0.8);
 
-  for(let d = 0; d < ordre.length; d += parPage){
+  tranches.forEach((tranche, n) => {
     const page = nouvellePage(doc,
-      "Planning — " + groupement + (d ? " (suite)" : ""), null);
-    const y = Y_TABLEAU_SEUL + FRISE.hEntete;   // laisse la place aux trimestres
-    const tranche = ordre.slice(d, d + parPage);
-    grillePlanning(doc, page, y, tranche.length * FRISE.hLigne, ech);
-    dessineFrise(doc, page, y, tranche, ech);
-    if(sansDate.length && d + parPage >= ordre.length){
-      bloc(doc, page, { x:FRISE.xLabel, y:y + tranche.length * FRISE.hLigne + 0.2,
+      "Planning — " + groupement + (n ? " (suite)" : ""), null);
+    const hauteur = tranche.reduce((s, l) => s + l._hauteur, 0);
+    grillePlanning(doc, page, y, hauteur, ech);
+    const fin = dessineFrise(doc, page, y, tranche, ech);
+    if(sansDate.length && n === tranches.length - 1){
+      bloc(doc, page, { x:FRISE.xLabel, y:fin + 0.2,
                         w:FRISE.lLabel + FRISE.lFrise, h:0.6, taille:9, couleur:"#8a827c",
                         texte:sansDate.length + " ligne(s) sans échéance renseignée, "
                               + "affichée(s) sans barre." });
     }
-  }
+  });
 }
 
 function pagesPlanningP2A(doc, c){
@@ -2264,7 +2300,7 @@ function pageExergue(doc, ligne, toutes, ech){
   y = section(doc, page, y, "Commentaire");
   // Le commentaire prend la place restante une fois les actions logées.
   const hActions = actions.length
-    ? Math.min(actions.length, 14) * FRISE.hLigne + 1.7 : 0;
+    ? Math.min(actions.reduce((s, l) => s + prepareLigne(l), 0), 9.0) + 1.7 : 0;
   const hCommentaire = Math.max(2.4, Y_MAX - y - hActions - 0.4);
   bloc(doc, page, { x:MARGE, y, w:LARG, h:hCommentaire, fond:"#FFFFFF", trait:"#d8d5d0",
                     texte:ligne.commentaire || "", taille:11, vertical:"top" });
@@ -2272,14 +2308,15 @@ function pageExergue(doc, ligne, toutes, ech){
 
   if(actions.length && ech){
     y = section(doc, page, y, titreEnfants) + 0.75;
-    const place = Math.floor((Y_MAX - y - 0.2) / FRISE.hLigne);
-    const tranche = actions.slice(0, place);
-    grillePlanning(doc, page, y, tranche.length * FRISE.hLigne, ech);
-    dessineFrise(doc, page, y, tranche, ech);
-    if(actions.length > place){
-      bloc(doc, page, { x:FRISE.xLabel, y:y + tranche.length * FRISE.hLigne + 0.1,
+    const tranche = repartitLignes(actions, Y_MAX - y - 0.6)[0] || [];
+    const hauteur = tranche.reduce((s, l) => s + l._hauteur, 0);
+    grillePlanning(doc, page, y, hauteur, ech);
+    const fin = dessineFrise(doc, page, y, tranche, ech);
+    if(actions.length > tranche.length){
+      bloc(doc, page, { x:FRISE.xLabel, y:fin + 0.1,
                         w:FRISE.lLabel + FRISE.lFrise, h:0.5, taille:9, couleur:"#8a827c",
-                        texte:"…et " + (actions.length - place) + " action(s) supplémentaire(s)." });
+                        texte:"…et " + (actions.length - tranche.length)
+                              + " ligne(s) supplémentaire(s)." });
     }
   }
 }
