@@ -56,7 +56,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-77</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-78</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -2042,8 +2042,9 @@ function grillePlanning(doc, page, y, hauteur, ech){
    plusieurs lignes au besoin, et la rangée s'ajuste. */
 function prepareLigne(l){
   const lLabel = FRISE.lLabel - (l.action ? 0.4 : 0);
+  const grasMesure = l._style !== "enfant";
   l._texte = decoupe((l.action ? "— " : "") + l.libelle,
-                     (lLabel - 0.25) * 0.94, 9, 4, !l.action);
+                     (lLabel - 0.25) * 0.94, 9, 4, grasMesure);
   l._hauteur = Math.max(FRISE.hLigne, 0.18 + 0.36 * l._texte.length);
   return l._hauteur;
 }
@@ -2051,12 +2052,16 @@ function prepareLigne(l){
 /* Trace les lignes d'un planning. Renvoie l'ordonnée atteinte. */
 function dessineFrise(doc, page, y, lignes, ech){
   const pos = ech.pos;
-  let yy = y;
+  let yy = y, alterne = 0;
   lignes.forEach((l, i) => {
     const h = l._hauteur || prepareLigne(l);
-    // Les lignes mères — projet, ou action portant des tâches — sont en gras
-    // sur fond gris ; leurs enfants restent en romain sur fond blanc.
-    const bande = !l.action;
+    // Une ligne mère — projet suivi de ses MEO, ou action suivie de ses tâches —
+    // est en gras sur fond gris, ses filles en romain sur fond blanc. Une ligne
+    // isolée reprend l'alternance blanc / gris.
+    let bande;
+    if(l._style === "mere") bande = true;
+    else if(l._style === "enfant") bande = false;
+    else bande = (alterne++ % 2 === 1);
     if(bande) bloc(doc, page, { x:FRISE.xLabel, y:yy,
                                 w:FRISE.xFrise + FRISE.lFrise - FRISE.xLabel,
                                 h, fond:"#F7F5F1", texte:"", trait:null });
@@ -2181,10 +2186,13 @@ function pagesPlanningP2A(doc, c){
         .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr", { numeric:true }));
       const feuilles = feuillesDe(projet, actions);
       if(projet){
-        // Le projet sert d'intitulé ; la barre revient à ses actions ou à ses tâches.
-        lignes.push(Object.assign({}, projet, { action:false, sansBarre:feuilles.length > 0 }));
+        // Le projet sert d'intitulé ; la barre revient à ses actions.
+        lignes.push(Object.assign({}, projet, {
+          action:false, sansBarre:feuilles.length > 0,
+          _style: feuilles.length ? "mere" : "alterne"
+        }));
       }
-      feuilles.forEach(f => lignes.push(f));
+      feuilles.forEach(f => lignes.push(Object.assign(f, { _style:"enfant" })));
     });
     planningGroupement(doc, g, lignes, ech);
   });
@@ -2302,14 +2310,15 @@ function pageExergue(doc, ligne, toutes, ech){
   let titreEnfants;
   if(enfants.length){
     // Le projet ouvre la frise, ses actions viennent en dessous.
-    actions = [Object.assign({}, ligne, { action:false })]
-      .concat(enfants.map(a => Object.assign({}, a, { action:true })));
+    actions = [Object.assign({}, ligne, { action:false, _style:"mere" })]
+      .concat(enfants.map(a => Object.assign({}, a, { action:true, _style:"enfant" })));
     titreEnfants = "Actions de mise en œuvre";
   }else{
     const taches = tachesDe(ligne.idAction, ligne.libelle);
     // La ligne elle-même ouvre la frise, ses tâches viennent en dessous.
     actions = taches.length
-      ? [Object.assign({}, ligne, { action:false })].concat(taches) : [];
+      ? [Object.assign({}, ligne, { action:false, _style:"mere" })]
+          .concat(taches.map(t => Object.assign(t, { _style:"enfant" }))) : [];
     titreEnfants = "Tâches";
   }
 
