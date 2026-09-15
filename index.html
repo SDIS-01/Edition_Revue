@@ -81,6 +81,12 @@
 
     <div id="blocConfig" hidden>
     <fieldset>
+      <legend>Types de revue proposés</legend>
+      <div id="typesVisibles" class="cases"></div>
+      <p class="aide">Seuls les types cochés apparaissent dans la liste « Type ».</p>
+    </fieldset>
+
+    <fieldset>
       <legend>Tables sources</legend>
       <div class="grille">
         <div><label for="tPEPS">Table des projets et actions</label><select id="tPEPS"></select></div>
@@ -887,13 +893,55 @@ function majDescType(){
   $("blocGroupement").hidden = t.id !== "groupement";
 }
 
+/* Types proposés par défaut dans la liste ; les autres s'activent en configuration. */
+const TYPES_VISIBLES_DEFAUT = ["complete", "projets", "mec", "p2a", "perso"];
+
+function typesVisibles(){
+  return Array.isArray(cfg.typesVisibles) && cfg.typesVisibles.length
+    ? cfg.typesVisibles : TYPES_VISIBLES_DEFAUT;
+}
+
+/* Remplit la liste « Type ». Le type en cours reste proposé même s'il est masqué,
+   pour ne pas changer silencieusement la revue sélectionnée. */
+function remplitTypes(){
+  const sel = $("typeRevue");
+  const visibles = typesVisibles();
+  const courant = cfg.typeRevue || "complete";
+  sel.innerHTML = TYPES.filter(t => visibles.includes(t.id) || t.id === courant)
+    .map(t => '<option value="' + t.id + '">' + esc(t.nom) + "</option>").join("");
+  sel.value = courant;
+}
+
+function construitTypesVisibles(){
+  const zone = $("typesVisibles"); zone.innerHTML = "";
+  const visibles = typesVisibles();
+  TYPES.forEach(t => {
+    const lab = document.createElement("label");
+    const c = document.createElement("input");
+    c.type = "checkbox"; c.value = t.id;
+    c.checked = visibles.includes(t.id);
+    c.addEventListener("change", () => {
+      const coches = [...zone.querySelectorAll("input:checked")].map(i => i.value);
+      if(!coches.length){
+        c.checked = true;
+        alerte("Au moins un type de revue doit rester proposé.");
+        return;
+      }
+      cfg.typesVisibles = coches;
+      sauve(); remplitTypes();
+    });
+    lab.append(c, document.createTextNode(t.nom));
+    zone.appendChild(lab);
+  });
+}
+
 function construitTypes(){
   const sel = $("typeRevue");
-  sel.innerHTML = TYPES.map(t =>
-    '<option value="' + t.id + '">' + esc(t.nom) + "</option>").join("");
-  sel.value = cfg.typeRevue || "complete";
+  remplitTypes();
+  construitTypesVisibles();
   sel.addEventListener("change", () => {
     cfg.typeRevue = sel.value;
+    remplitTypes();
     appliqueType();
     sauve();
     construitComparaison();
@@ -922,7 +970,7 @@ function construitDiapos(){
     c.addEventListener("change", () => {
       cfg.diapos = [...zone.querySelectorAll("input:checked")].map(i => i.value);
       cfg.typeRevue = "perso";
-      $("typeRevue").value = "perso";
+      remplitTypes();
       majDescType();
       sauve(); construitComparaison(); recalcule();
     });
@@ -3961,7 +4009,7 @@ $("btnReinit").addEventListener("click", () => {
   ["detPriorite", "detPorteur", "detGroupement", "detCommentaire", "planningP2A", "inclureAnnee"]
     .forEach(id => $(id).checked = true);
   $("intercalaires").checked = false;
-  $("typeRevue").value = "complete";
+  remplitTypes();
   appliqueType();
   construitP2A(); construitPriorites(); construitCategories(); construitExergue(); construitGroupements(); construitComparaison();
   sauve(); recalcule();
