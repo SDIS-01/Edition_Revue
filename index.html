@@ -162,13 +162,6 @@
         <label><input type="checkbox" id="intercalaires">
           Insérer une diapositive d'intercalaire avant chaque partie</label>
       </div>
-      <div class="grille" style="margin-top:8px">
-        <div><label for="triListeMEC">Tri de la liste « MEC 2023 — en cours de réalisation »</label>
-          <select id="triListeMEC">
-            <option value="categorie">Par catégorie</option>
-            <option value="groupement">Par groupement</option>
-          </select></div>
-      </div>
       <p class="aide">Modifier une case bascule le type sur « Sélection libre ».</p>
     </fieldset>
 
@@ -182,8 +175,14 @@
     <fieldset>
       <legend>Catégories MEC 2023</legend>
       <div id="categoriesMEC" class="cases"></div>
-      <p class="aide">Décochez une catégorie pour l'exclure de la revue
-        (diapositive MEC 2023, revue PDF MEC et préconisations de la revue par groupement).</p>
+      <p class="aide">Décochez une catégorie pour l'exclure de la revue.</p>
+      <div class="grille" style="margin-top:8px">
+        <div><label for="triListeMEC">Tri de la liste</label>
+          <select id="triListeMEC">
+            <option value="categorie">Par catégorie</option>
+            <option value="groupement">Par groupement</option>
+          </select></div>
+      </div>
     </fieldset>
 
     <fieldset>
