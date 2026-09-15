@@ -2159,7 +2159,9 @@ function pageP2ASynthese(doc, c, focus){
       const v = txt(l.priorite) || SANS_PRIORITE;
       compte[v] = (compte[v] || 0) + 1;
     });
-    const parts = Object.keys(compte).sort(comparePriorites)
+    // Les lignes sans priorité ne figurent pas dans la répartition.
+    const parts = Object.keys(compte).filter(v => v !== SANS_PRIORITE)
+      .sort(comparePriorites)
       .map(v => ({ valeur:compte[v], libelle:v }));
     cartoucheMulti(doc, page, x3, largeur, parts, "#F79646", yCart);
   }
