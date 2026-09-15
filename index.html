@@ -166,8 +166,16 @@
     </fieldset>
 
     <fieldset>
+      <legend>Priorités</legend>
+      <div id="priorites" class="cases"></div>
+      <p class="aide" id="etatPriorites">Décochez une priorité pour l'exclure de la revue
+        (projets et actions uniquement, les préconisations MEC ne sont pas filtrées).</p>
+    </fieldset>
+
+    <fieldset>
       <legend>Colonnes du détail (PDF)</legend>
       <div class="cases" id="colDetail">
+        <label><input type="checkbox" id="detPriorite" checked> Priorité</label>
         <label><input type="checkbox" id="detPorteur" checked> Porteur</label>
         <label><input type="checkbox" id="detGroupement" checked> Groupement</label>
         <label><input type="checkbox" id="detCommentaire" checked> Commentaire</label>
@@ -525,6 +533,7 @@ async function chargeDonnees(){
 
   construitMappings();
   construitP2A();
+  construitPriorites();
   construitFamilles();
   construitGroupements();
   construitExergue();
@@ -546,7 +555,11 @@ function selectColonne(id, libelle, colonnes, valeur){
     sel.appendChild(o);
   });
   if(valeur && colonnes.includes(valeur)) sel.value = valeur;
-  sel.addEventListener("change", () => { cfg[id] = sel.value; sauve(); recalcule(); });
+  sel.addEventListener("change", () => {
+    cfg[id] = sel.value; sauve();
+    if(id === "colPriorite") construitPriorites();
+    recalcule();
+  });
   div.append(lab, sel);
   return div;
 }
@@ -694,6 +707,71 @@ function construitP2A(){
   });
 }
 
+/* ---------- Filtre par priorité ----------
+   On mémorise les priorités exclues : une nouvelle valeur apparue dans la table
+   est ainsi retenue par défaut. */
+const SANS_PRIORITE = "Sans priorité";
+
+function prioriteDe(l){
+  return (cfg.colPriorite ? txt(l[cfg.colPriorite]) : "") || SANS_PRIORITE;
+}
+
+function filtrePrioriteActif(){
+  return !!cfg.colPriorite && (cfg.prioritesExclues || []).length > 0;
+}
+
+function prioriteRetenue(l){
+  if(!filtrePrioriteActif()) return true;
+  return !cfg.prioritesExclues.includes(prioriteDe(l));
+}
+
+function listePrioritesRetenues(){
+  const toutes = [...new Set(recPEPS.map(prioriteDe))];
+  return toutes.filter(p => !(cfg.prioritesExclues || []).includes(p))
+    .sort((a, b) => a.localeCompare(b, "fr", { numeric:true }));
+}
+
+/* Mention ajoutée au sous-titre des PDF quand le filtre est actif. */
+function mentionPriorites(){
+  if(!filtrePrioriteActif()) return "";
+  const r = listePrioritesRetenues();
+  return " — Priorités : " + (r.length ? r.join(", ") : "aucune");
+}
+
+function construitPriorites(){
+  const zone = $("priorites"); zone.innerHTML = "";
+  cfg.prioritesExclues = cfg.prioritesExclues || [];
+  if(!cfg.colPriorite){ zone.textContent = "Choisissez d'abord la colonne de priorité."; majArchivage(); return; }
+  const valeurs = [...new Set(recPEPS.map(prioriteDe))]
+    .sort((a, b) => a === SANS_PRIORITE ? 1 : b === SANS_PRIORITE ? -1
+                    : a.localeCompare(b, "fr", { numeric:true }));
+  if(!valeurs.length){ zone.textContent = "Aucune priorité trouvée dans cette colonne."; majArchivage(); return; }
+  valeurs.forEach(v => {
+    const lab = document.createElement("label");
+    const c = document.createElement("input");
+    c.type = "checkbox"; c.value = v;
+    c.checked = !cfg.prioritesExclues.includes(v);
+    c.addEventListener("change", () => {
+      const exclues = [...zone.querySelectorAll("input:not(:checked)")].map(i => i.value);
+      // Les valeurs absentes de la table ce jour restent exclues si elles l'étaient.
+      cfg.prioritesExclues = cfg.prioritesExclues
+        .filter(e => !valeurs.includes(e)).concat(exclues);
+      sauve(); majArchivage(); construitComparaison(); recalcule();
+    });
+    lab.append(c, document.createTextNode(v));
+    zone.appendChild(lab);
+  });
+  majArchivage();
+}
+
+/* Une édition filtrée fausserait les comparaisons : l'archivage est bloqué. */
+function majArchivage(){
+  const actif = filtrePrioriteActif();
+  $("btnArchive").disabled = actif;
+  $("btnArchive").title = actif
+    ? "Archivage impossible tant qu'un filtre de priorité est actif." : "";
+}
+
 function construitFamilles(){
   const zone = $("familles"); zone.innerHTML = "";
   if(!cfg.mecType){ zone.textContent = "Choisissez d'abord la colonne de type."; return; }
@@ -784,7 +862,8 @@ function sauve(){
 /* ------------------------------------------------------------------ */
 
 function bilanNature(nature, jan1, finAnnee, fraction){
-  const lignes = recPEPS.filter(l => String(l[cfg.colNature] || "").toUpperCase() === nature);
+  const lignes = recPEPS.filter(l => String(l[cfg.colNature] || "").toUpperCase() === nature
+                                  && prioriteRetenue(l));
 
   // Stock au 1er janvier : la ligne est comptée sauf si elle était déjà close à cette date.
   const stock = lignes.filter(l => {
@@ -883,6 +962,7 @@ function bilanP2A(fraction){
 
   const lignes = [];
   recPEPS.forEach(l => {
+    if(!prioriteRetenue(l)) return;
     const mil = versListe(l[cfg.colP2A]);
     const communs = mil.filter(m => choisis.includes(m));
     if(!communs.length) return;                       // dédoublonnage : une ligne = une entrée
@@ -899,6 +979,7 @@ function bilanP2A(fraction){
       libelle: txt(l[cfg.colLibelle]),
       porteur: txt(l[cfg.colPorteur]),
       groupement,
+      priorite: txt(l[cfg.colPriorite]),
       commentaire: txt(l[cfg.colCommentaire]),
       avancement: versPourcent(l[cfg.colAvancement], fraction),
       interrompu: [cfg.colSuspension, cfg.colAbandon].some(c => c && versDate(l[c])),
@@ -1081,6 +1162,10 @@ function calculeEcarts(){
 async function archiveEdition(){
   if(!cfg.tHisto){ alerte("Choisissez d'abord la table d'historique."); return; }
   if(!calcul){ alerte("Chargez d'abord les données."); return; }
+  if(filtrePrioriteActif()){
+    alerte("Archivage impossible : un filtre de priorité est actif. Cochez toutes les priorités pour archiver.");
+    return;
+  }
   const libelle = $("libelleEdition").value.trim();
   if(!libelle){ alerte("Donnez un nom à l'édition avant de l'archiver."); return; }
   const t = typeCourant();
@@ -2748,7 +2833,7 @@ function pageEvolutionPdf(doc, ctx, jeu, depart){
 
 /* Poids relatifs des colonnes du détail. Porteur et groupement ont besoin
    d'assez de place pour un « NOM Prénom » sur une seule ligne. */
-const POIDS = { libelle:2.8, porteur:1.5, groupement:1.3, commentaire:2.6,
+const POIDS = { libelle:2.8, priorite:0.9, porteur:1.5, groupement:1.3, commentaire:2.6,
                 date:0.9, avancement:0.6 };
 
 /* Colonnes du détail : le libellé et l'avancement sont toujours là,
@@ -2756,6 +2841,8 @@ const POIDS = { libelle:2.8, porteur:1.5, groupement:1.3, commentaire:2.6,
 function champsDetail(type){
   const champs = [{ cle:"libelle",
                     titre: type.id === "mec" ? "Préconisation" : "Projet ou action" }];
+  if(cfg.detPriorite !== false && type.id !== "mec" && cfg.colPriorite)
+    champs.push({ cle:"priorite", titre:"Priorité" });
   if(cfg.detPorteur !== false)    champs.push({ cle:"porteur",    titre:"Porteur" });
   if(cfg.detGroupement !== false) champs.push({ cle:"groupement", titre:"Groupement" });
   if(cfg.detCommentaire !== false) champs.push({ cle:"commentaire", titre:"Commentaire" });
@@ -2904,7 +2991,9 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
   const avant = doc.internal.getNumberOfPages();
   let y = nouvelleFeuillePdf(doc, ctx);
   const droite = droiteDe(doc), bas = basDe(doc);
-  const largeurTexte = droite - MARGE_P - 34;
+  const avecPrio = jeu.champs && jeu.champs.some(c => c.cle === "priorite");
+  const largeurPrio = avecPrio ? 24 : 0;
+  const largeurTexte = droite - MARGE_P - 34 - largeurPrio;
 
   doc.setFontSize(11); doc.setTextColor(...ENCRE_P);
   doc.text("Sommaire", MARGE_P, y);
@@ -2934,6 +3023,11 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
       const texte = lignesCellule(doc, r.libelle, largeurTexte, 1)[0];
       doc.setTextColor(61, 61, 58);
       doc.text(texte || "—", MARGE_P + 5, y);
+      if(avecPrio && r.priorite && r.priorite !== "—"){
+        doc.setTextColor(...GRIS_P);
+        doc.text(lignesCellule(doc, r.priorite, largeurPrio - 2, 1)[0] || "",
+                 MARGE_P + 7 + largeurTexte, y);
+      }
       const s = statutParCle(r.statut);
       doc.setTextColor(...s.encre);
       doc.text(s.libelle, droite, y, { align:"right" });
@@ -3094,6 +3188,7 @@ function jeuP2A(c){
     libelle: l.libelle,
     porteur: l.porteur,
     groupement: l.groupement,
+    priorite: l.priorite,
     commentaire: l.commentaire,
     avancement: l.avancement,
     statut: statutDeLigne(l.avancement, l.interrompu),
@@ -3193,7 +3288,8 @@ async function generePDF(type){
     : (n > 1 ? "projets et actions" : "projet ou action");
   const ctx = {
     titre: type.nom,
-    sousTitre: "Édition du " + jjmmaaaa(new Date()) + " — " + n + " " + unite,
+    sousTitre: "Édition du " + jjmmaaaa(new Date()) + " — " + n + " " + unite +
+               (type.id === "mec" ? "" : mentionPriorites()),
     pages: ["portrait"]
   };
   const doc = new window.jspdf.jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
@@ -3523,7 +3619,7 @@ async function generePDFGroupement(type){
     ctxCourant = {
       titre: "Revue " + g,
       sousTitre: "Édition du " + jjmmaaaa(new Date()) + " — " + n +
-                 (n > 1 ? " lignes suivies" : " ligne suivie"),
+                 (n > 1 ? " lignes suivies" : " ligne suivie") + mentionPriorites(),
       pages: ["portrait"]
     };
     if(premier){
@@ -3576,7 +3672,7 @@ $("btnArchive").addEventListener("click", () =>
 $("tHisto").addEventListener("change", () =>
   chargeHistorique().then(recalcule).catch(e => alerte("Échec : " + e.message)));
 $("memeType").addEventListener("change", () => { construitComparaison(); recalcule(); });
-["detPorteur", "detGroupement", "detCommentaire"].forEach(id =>
+["detPriorite", "detPorteur", "detGroupement", "detCommentaire"].forEach(id =>
   $(id).addEventListener("change", () => { cfg[id] = $(id).checked; sauve(); }));
 $("rechercheExergue").addEventListener("input", () => construitExergue());
 $("planningP2A").addEventListener("change", () => {
@@ -3588,16 +3684,17 @@ $("btnReinit").addEventListener("click", () => {
   cfg.exergue = [];
   cfg.groupementRevue = TOUS_GROUPEMENTS;
   cfg.revA = "actuel"; cfg.revB = "";
-  cfg.detPorteur = cfg.detGroupement = cfg.detCommentaire = true;
+  cfg.detPriorite = cfg.detPorteur = cfg.detGroupement = cfg.detCommentaire = true;
+  cfg.prioritesExclues = [];
   cfg.planningP2A = true; cfg.inclureAnnee = true; cfg.intercalaires = false;
   cfg.typeRevue = "complete";
   $("rechercheExergue").value = "";
-  ["detPorteur", "detGroupement", "detCommentaire", "planningP2A", "inclureAnnee"]
+  ["detPriorite", "detPorteur", "detGroupement", "detCommentaire", "planningP2A", "inclureAnnee"]
     .forEach(id => $(id).checked = true);
   $("intercalaires").checked = false;
   $("typeRevue").value = "complete";
   appliqueType();
-  construitP2A(); construitExergue(); construitGroupements(); construitComparaison();
+  construitP2A(); construitPriorites(); construitExergue(); construitGroupements(); construitComparaison();
   sauve(); recalcule();
   alerte("Filtres réinitialisés.", true);
 });
@@ -3625,7 +3722,7 @@ async function demarre(){
     $("annee").value = cfg.annee || new Date().getFullYear();
     if(cfg.intercalaires === undefined) cfg.intercalaires = false;
     $("intercalaires").checked = cfg.intercalaires;
-    ["detPorteur", "detGroupement", "detCommentaire"].forEach(id => {
+    ["detPriorite", "detPorteur", "detGroupement", "detCommentaire"].forEach(id => {
       if(cfg[id] === undefined) cfg[id] = true;
       $(id).checked = cfg[id];
     });
