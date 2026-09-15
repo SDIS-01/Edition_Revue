@@ -162,6 +162,13 @@
         <label><input type="checkbox" id="intercalaires">
           Insérer une diapositive d'intercalaire avant chaque partie</label>
       </div>
+      <div class="grille" style="margin-top:8px">
+        <div><label for="triListeMEC">Tri de la liste « MEC 2023 — en cours de réalisation »</label>
+          <select id="triListeMEC">
+            <option value="categorie">Par catégorie</option>
+            <option value="groupement">Par groupement</option>
+          </select></div>
+      </div>
       <p class="aide">Modifier une case bascule le type sur « Sélection libre ».</p>
     </fieldset>
 
@@ -1007,6 +1014,7 @@ function bilanMEC(fraction){
       familles[fam].reste++;
       resteListe.push({
         libelle: txt(l[cfg.mecLibelle]),
+        groupement: txt(l[cfg.mecGroupement]),
         type: v,
         porteur: txt(l[cfg.mecPorteur]),
         avancement: p
@@ -1071,6 +1079,16 @@ function bilanP2A(fraction){
   return { lignes, parMillesime, projets };
 }
 
+/* Exécute fn comme si aucun filtre de priorité ou de catégorie n'était posé. */
+function sansFiltres(fn){
+  const p = cfg.prioritesExclues, k = cfg.categoriesExclues;
+  cfg.prioritesExclues = []; cfg.categoriesExclues = [];
+  try{ return fn(); }
+  finally{ cfg.prioritesExclues = p; cfg.categoriesExclues = k; }
+}
+
+let calculComplet = null;   // mêmes chiffres que calcul, sans les filtres
+
 function recalcule(){
   if(!recPEPS.length && !recMEC.length) return;
   const annee = parseInt($("annee").value, 10) || new Date().getFullYear();
@@ -1086,6 +1104,13 @@ function recalcule(){
     mec:  bilanMEC(fracM),
     p2a:  bilanP2A(fracP)
   };
+  calculComplet = sansFiltres(() => ({
+    annee,
+    peps: bilanNature("PEPS", jan1, finAnnee, fracP),
+    av:   bilanNature("AV",   jan1, finAnnee, fracP),
+    mec:  bilanMEC(fracM),
+    p2a:  bilanP2A(fracP)
+  }));
   calculeEcarts();
   dessineApercu();
 }
@@ -1602,29 +1627,31 @@ function camembert(parts, titre){
   const total = parts.reduce((s, p) => s + p.valeur, 0);
   if(!total) return cv.toDataURL("image/png").split(",")[1];
 
+  // Au-delà de deux parts, le disque est un peu réduit et remonté pour laisser
+  // la légende sur une seule colonne, en gros caractères.
+  const serre = parts.length > 2;
+  const cx = GRAPH.cx, cy = serre ? 285 : GRAPH.cy, r = serre ? 165 : GRAPH.r;
+  const yLeg = serre ? 530 : GRAPH.yLegende, pas = serre ? 54 : 52;
+
   let a = -Math.PI / 2;
+  const pleines = parts.filter(p => p.valeur > 0).length;
   parts.forEach(p => {
     const ang = (p.valeur / total) * Math.PI * 2;
-    g.beginPath(); g.moveTo(GRAPH.cx, GRAPH.cy);
-    g.arc(GRAPH.cx, GRAPH.cy, GRAPH.r, a, a + ang); g.closePath();
+    g.beginPath();
+    // Une part unique forme un disque plein, sans rayon tracé.
+    if(pleines > 1) g.moveTo(cx, cy);
+    g.arc(cx, cy, r, a, a + ang); g.closePath();
     g.fillStyle = p.couleur; g.fill();
     g.strokeStyle = "#ffffff"; g.lineWidth = 4; g.stroke();
     a += ang;
   });
 
   g.textAlign = "left";
-  // Au-delà de deux parts, la légende passe sur deux colonnes pour tenir sous le graphique.
-  const deuxCol = parts.length > 2;
-  g.font = (deuxCol ? "24px" : "30px") + " Tahoma, sans-serif";
-  const lCol = deuxCol ? (cv.width - 20) / 2 : cv.width;
+  g.font = "34px Tahoma, sans-serif";
+  const xPastille = 84, xTexte = 134, dispo = cv.width - xTexte - 20;
   parts.forEach((p, i) => {
-    const col = deuxCol ? i % 2 : 0;
-    const rangee = deuxCol ? Math.floor(i / 2) : i;
-    const xPastille = deuxCol ? 10 + col * lCol : 84;
-    const xTexte = xPastille + (deuxCol ? 34 : 44);
-    const dispo = deuxCol ? lCol - 40 : cv.width - xTexte - 20;
-    const y = GRAPH.yLegende + rangee * 52;
-    g.fillStyle = p.couleur; g.fillRect(xPastille, y - (deuxCol ? 12 : 16), deuxCol ? 24 : 32, deuxCol ? 24 : 32);
+    const y = yLeg + i * pas;
+    g.fillStyle = p.couleur; g.fillRect(xPastille, y - 18, 34, 34);
     g.fillStyle = "#26221f";
     const pct = Math.round((p.valeur / total) * 100);
     let texte = p.nom + " — " + p.valeur + " (" + pct + " %)";
@@ -1884,35 +1911,142 @@ function pageNature(doc, c, b, titre, cle){
   }
 }
 
-function pageMEC(doc, c){
-  const m = c.mec, em = ecarts ? ecarts.mec : null;
-  pageIntercalaire(doc, "MEC 2023");
+/* ---------- Éléments communs MEC / P2A ---------- */
+
+const TEINTES_STATUT = {
+  "a engager":  { fond:"#fbebeb", couleur:"#993333" },
+  "en cours":   { fond:"#fff8db", couleur:"#7a6000" },
+  "termine":    { fond:"#edf5e0", couleur:"#3b6d11" },
+  "interrompu": { fond:"#f1efe8", couleur:"#666660" }
+};
+const ORDRE_STATUTS = ["a engager", "en cours", "termine", "interrompu"];
+const LARGEURS_MATRICE = [8.0, 3.4, 3.4, 3.4, 3.4, 3.6];
+
+/* Totaux par statut posés au-dessus des colonnes de la matrice. */
+function rangeeTotaux(doc, page, y, totaux){
+  let x = MARGE + LARGEURS_MATRICE[0];
+  ORDRE_STATUTS.forEach((k, i) => {
+    const w = LARGEURS_MATRICE[i + 1];
+    const t = TEINTES_STATUT[k];
+    bloc(doc, page, { x:x + 0.2, y, w:w - 0.4, h:0.8, fond:t.fond,
+                      texte:String(totaux[k] || 0), taille:14, gras:true,
+                      couleur:t.couleur, align:"center" });
+    x += w;
+  });
+}
+
+/* Cartouche découpé en colonnes : un chiffre et un libellé par colonne. */
+function cartoucheMulti(doc, page, x, largeur, parts, fond, yy){
+  const y = yy == null ? Y_KPI : yy;
+  bloc(doc, page, { x, y, w:largeur, h:H_KPI, fond, texte:"", trait:null });
+  if(!parts.length) return;
+  const n = parts.length, lc = largeur / n;
+  const tChiffre = n <= 4 ? 20 : (n <= 6 ? 16 : 13);
+  const tLibelle = n <= 4 ? 9 : 8;
+  parts.forEach((p, i) => {
+    const cx = x + i * lc;
+    if(i) bloc(doc, page, { x:cx - 0.015, y:y + 0.3, w:0.03, h:H_KPI - 0.6,
+                            fond:"#FFFFFF", texte:"", trait:null });
+    bloc(doc, page, { x:cx, y:y + 0.1, w:lc, h:1.0, texte:String(p.valeur),
+                      taille:tChiffre, gras:true, couleur:"#FFFFFF", align:"center" });
+    // Le libellé tient sur une ligne : le corps diminue pour les libellés longs.
+    const place = (lc - 0.3) / (String(p.libelle).length * 0.6 * 0.0353);
+    const taille = Math.max(6, Math.min(tLibelle, Math.floor(place * 2) / 2));
+    bloc(doc, page, { x:cx, y:y + 1.05, w:lc, h:0.7, texte:p.libelle, sansRetour:true,
+                      taille, couleur:"#FFFFFF", align:"center" });
+  });
+}
+
+/* Ordre des priorités : P1, P2, P3… puis les autres valeurs, « Sans priorité » en dernier. */
+function comparePriorites(a, b){
+  const na = /^p\s*(\d+)$/i.exec(a), nb = /^p\s*(\d+)$/i.exec(b);
+  if(na && nb) return na[1] - nb[1];
+  if(na) return -1;
+  if(nb) return 1;
+  if(a === SANS_PRIORITE) return 1;
+  if(b === SANS_PRIORITE) return -1;
+  return a.localeCompare(b, "fr");
+}
+
+/* « Priorité 1 », « Priorités 1 et 2 », « Priorités P1, Poursuite »… */
+function titrePriorites(){
+  const r = listePrioritesRetenues().sort(comparePriorites);
+  const nums = r.map(v => (/^p\s*(\d+)$/i.exec(v) || [])[1]);
+  if(nums.every(Boolean)){
+    if(nums.length === 1) return "Priorité " + nums[0];
+    return "Priorités " + nums.slice(0, -1).join(", ") + " et " + nums[nums.length - 1];
+  }
+  return (r.length > 1 ? "Priorités " : "Priorité ") + r.join(", ");
+}
+
+/* Pluriel des catégories MEC connues ; les autres sont reprises telles quelles. */
+function libelleCategorie(v, n){
+  const b = String(v).trim().toLowerCase();
+  const pluriels = {
+    "recommandation": "recommandations",
+    "recommandation majeure": "recommandations majeures",
+    "rappel au droit": "rappels au droit",
+    "rappel au droit principal": "rappels au droit principaux"
+  };
+  if(n > 1 && pluriels[b]) return pluriels[b];
+  return pluriels[b] !== undefined ? b : String(v);
+}
+
+function rangCategorie(cat){
+  const famille = (cfg.familles && cfg.familles[cat]) || "reco";
+  return (/majeur|principal/.test(String(cat).toLowerCase()) ? 0 : 2) +
+         (famille === "rappel" ? 1 : 0);
+}
+
+/* ---------- MEC 2023 ---------- */
+
+/* Synthèse MEC. Sans « focus », tableau complet ; avec, les deux premiers
+   cartouches portent les catégories retenues et les totaux par statut sont rappelés. */
+function pageMECSynthese(doc, c, jeu, focus){
+  const m = c.mec, em = (ecarts && !focus) ? ecarts.mec : null;
+  const titre = focus ? "Focus MEC 2023" : "MEC 2023";
   const sousTitre = "Situation au " + jjmmaaaa(new Date()) +
-                    (ecarts ? " — " + sousTitreComparaison() : "");
-  const page = nouvellePage(doc, "MEC 2023", sousTitre);
+                    (ecarts && !focus ? " — " + sousTitreComparaison() : "");
+  const page = nouvellePage(doc, titre, sousTitre);
   const largeur = (LARG - 1.2) / 4;
-  const jeu = jeuMEC(c);
   const st = jeu.parStatut;
   const global = Math.round(jeu.global * 100);
 
-  cartouche(doc, page, MARGE, largeur, m.familles.reco.total,
-            "recommandations", "#C0504D", em ? em.recoTotal : null, "neutre");
-  cartouche(doc, page, MARGE + largeur + 0.4, largeur, m.familles.rappel.total,
-            "rappels au droit", "#7f6f6c", em ? em.rappelTotal : null, "neutre");
+  const categories = [...jeu.categories]
+    .sort((a, b) => rangCategorie(a.cle) - rangCategorie(b.cle) ||
+                    a.libelle.localeCompare(b.libelle, "fr"));
+
+  if(!focus){
+    cartouche(doc, page, MARGE, largeur, m.familles.reco.total,
+              "recommandations", "#C0504D", em ? em.recoTotal : null, "neutre");
+    cartouche(doc, page, MARGE + largeur + 0.4, largeur, m.familles.rappel.total,
+              "rappels au droit", "#7f6f6c", em ? em.rappelTotal : null, "neutre");
+  }else if(categories.length <= 2){
+    const couleurs = ["#C0504D", "#7f6f6c"];
+    categories.forEach((cat, i) => {
+      const n = jeu.parCategorie[cat.cle] || 0;
+      const lib = libelleCategorie(cat.libelle, n);
+      cartouche(doc, page, MARGE + i * (largeur + 0.4), largeur, n,
+                lib.charAt(0).toUpperCase() + lib.slice(1), couleurs[i], null, "neutre");
+    });
+  }else{
+    cartoucheMulti(doc, page, MARGE, 2 * largeur + 0.4,
+      categories.map(cat => ({ valeur:jeu.parCategorie[cat.cle] || 0, libelle:cat.libelle })),
+      "#C0504D");
+  }
   cartouche(doc, page, MARGE + 2 * (largeur + 0.4), largeur, st["a engager"] || 0,
             "à engager", "#953735", em ? em.aEngager : null, "bas");
   cartouche(doc, page, MARGE + 3 * (largeur + 0.4), largeur, st["en cours"] || 0,
             "en cours de réalisation", "#F79646", em ? em.enCours : null, "bas");
 
-  // Deux graphiques de même gabarit, de même taille, centrés sur la largeur.
+  // Deux graphiques de même gabarit ; en focus ils sont un peu réduits
+  // pour laisser la place à la rangée de totaux.
   const yGraph = Y_CONTENU + 0.1;
-  const lGraph = 7.0, hGraph = lGraph * GRAPH.h / GRAPH.l;   // 7,0 x 7,6
+  const lGraph = focus ? 6.4 : 7.0, hGraph = lGraph * GRAPH.h / GRAPH.l;
   const xGauche = MARGE + (LARG - 2 * lGraph - 2.0) / 2;
   const xDroite = xGauche + lGraph + 2.0;
   image(doc, page, { x:xGauche, y:yGraph, w:lGraph, h:hGraph,
                      base64:anneauAvancement(global, "Avancement global") });
-
-  // Mêmes décomptes que la matrice ci-dessous ; les statuts vides sont omis.
   const png = camembert([
     { nom:"À engager",  valeur:st["a engager"] || 0,  couleur:"#C0504D" },
     { nom:"En cours",   valeur:st["en cours"] || 0,   couleur:"#FFCC00" },
@@ -1921,74 +2055,82 @@ function pageMEC(doc, c){
   ].filter(p => p.valeur > 0), "État d'avancement");
   image(doc, page, { x:xDroite, y:yGraph, w:lGraph, h:hGraph, base64:png });
 
-  // Matrice catégorie x statut, comme le bloc focus des PDF, aux teintes du diaporama.
-  // Ordre imposé : recommandation majeure, rappel au droit principal,
-  // puis recommandation et rappel au droit.
-  const rang = cat => {
-    const famille = (cfg.familles && cfg.familles[cat.cle]) || "reco";
-    return (/majeur|principal/.test(cat.libelle.toLowerCase()) ? 0 : 2) +
-           (famille === "rappel" ? 1 : 0);
-  };
-  const categories = [...jeu.categories]
-    .sort((a, b) => rang(a) - rang(b) || a.libelle.localeCompare(b.libelle, "fr"));
+  let yTable = yGraph + hGraph + 0.4;
+  if(focus){
+    rangeeTotaux(doc, page, yTable, st);
+    yTable += 1.1;
+  }
 
-  const teintes = {
-    "a engager":  { fond:"#fbebeb", couleur:"#993333" },
-    "en cours":   { fond:"#fff8db", couleur:"#7a6000" },
-    "termine":    { fond:"#edf5e0", couleur:"#3b6d11" },
-    "interrompu": { fond:"#f1efe8", couleur:"#666660" }
-  };
-  const ordre = ["a engager", "en cours", "termine", "interrompu"];
   const matrice = categories.map(cat => {
     const l = jeu.croise[cat.cle] || {};
-    const total = ordre.reduce((s, k) => s + (l[k] || 0), 0);
-    return [cat.libelle].concat(ordre.map(k =>
-      Object.assign({ texte: l[k] ? String(l[k]) : "—" }, teintes[k])))
+    const total = ORDRE_STATUTS.reduce((s, k) => s + (l[k] || 0), 0);
+    return [cat.libelle].concat(ORDRE_STATUTS.map(k =>
+      Object.assign({ texte: l[k] ? String(l[k]) : "—" }, TEINTES_STATUT[k])))
       .concat([{ texte:String(total), gras:true }]);
   });
-
-  tableauPagine(doc, { page, x:MARGE, y:yGraph + hGraph + 0.4,
-    largeurs:[8.0, 3.4, 3.4, 3.4, 3.4, 3.6],
+  tableauPagine(doc, { page, x:MARGE, y:yTable, largeurs:LARGEURS_MATRICE,
     entetes:["Catégorie", "À engager", "En cours", "Terminé", "Interrompu", "Total"],
     alignes:["start", "center", "center", "center", "center", "center"],
     titreSuite:null, lignes:matrice });
-
-  if(m.resteListe.length){
-    // Recommandation majeure, recommandation, rappel au droit principal, rappel au droit.
-    const rangListe = r => {
-      const famille = (cfg.familles && cfg.familles[r.type]) || "reco";
-      return (famille === "rappel" ? 2 : 0) +
-             (/majeur|principal/.test(String(r.type).toLowerCase()) ? 0 : 1);
-    };
-    const liste = [...m.resteListe].sort((a, b) =>
-      rangListe(a) - rangListe(b) || String(a.libelle).localeCompare(String(b.libelle), "fr"));
-
-    const suite = nouvellePage(doc, "MEC 2023 — en cours de réalisation", null);
-    tableauPagine(doc, { page:suite, x:MARGE, y:Y_TABLEAU_SEUL,
-      largeurs:[13.0, 5.4, 3.8, 3.0],
-      entetes:["Libellé", "Catégorie", "Porteur", "Avancement"],
-      titreSuite:null,
-      lignes:liste.map(r => [
-        r.libelle, r.type, r.porteur,
-        { texte:r.avancement + " %", couleur:encreAvancement(r.avancement, false), gras:true }
-      ]) });
-  }
 }
 
-function pageP2A(doc, c){
-  const p = c.p2a, ep = ecarts ? ecarts.p2a : null;
-  pageIntercalaire(doc, "P2A");
+/* Liste complète des préconisations en cours, triée selon le réglage. */
+function pageMECListe(doc, c){
+  const m = c.mec;
+  if(!m.resteListe.length) return;
+  // Recommandation majeure, recommandation, rappel au droit principal, rappel au droit.
+  const rangListe = r => {
+    const famille = (cfg.familles && cfg.familles[r.type]) || "reco";
+    return (famille === "rappel" ? 2 : 0) +
+           (/majeur|principal/.test(String(r.type).toLowerCase()) ? 0 : 1);
+  };
+  const parGroupement = cfg.triListeMEC === "groupement";
+  const cleG = r => r.groupement || "\uffffNon renseigné";   // non renseigné en dernier
+  const liste = [...m.resteListe].sort((a, b) =>
+    (parGroupement ? cleG(a).localeCompare(cleG(b), "fr") : 0) ||
+    rangListe(a) - rangListe(b) ||
+    String(a.libelle).localeCompare(String(b.libelle), "fr"));
+
+  const suite = nouvellePage(doc, "MEC 2023 — en cours de réalisation",
+    parGroupement ? "Tri par groupement" : null);
+  tableauPagine(doc, { page:suite, x:MARGE, y:Y_TABLEAU_SEUL,
+    largeurs:[9.8, 5.4, 3.0, 4.0, 3.0],
+    entetes:["Libellé", "Catégorie", "Groupement", "Porteur", "Avancement"],
+    alignes:["start", "start", "start", "start", "center"],
+    titreSuite:null,
+    lignes:liste.map(r => [
+      r.libelle, r.type, r.groupement || "—", r.porteur,
+      { texte:r.avancement + " %", couleur:encreAvancement(r.avancement, false), gras:true }
+    ]) });
+}
+
+/* Diapositive MEC complète, focus si un filtre de catégorie est posé, puis la liste. */
+function pageMEC(doc, c, cComplet){
+  pageIntercalaire(doc, "MEC 2023");
+  const complet = cComplet || c;
+  pageMECSynthese(doc, complet, sansFiltres(() => jeuMEC(complet)), false);
+  if(filtreCategorieActif()) pageMECSynthese(doc, c, jeuMEC(c), true);
+  pageMECListe(doc, complet);
+}
+
+/* ---------- P2A ---------- */
+
+/* Synthèse P2A. Sans « focus » : PEPS, AV et répartition par priorité, sur tout le
+   périmètre. Avec : chiffres filtrés, total filtré et rangée de totaux par statut. */
+function pageP2ASynthese(doc, c, focus){
+  const p = c.p2a, ep = (ecarts && !focus) ? ecarts.p2a : null;
   const choisis = (cfg.p2aChoisis || []).join(" · ") || "aucun millésime sélectionné";
-  const page = nouvellePage(doc, "P2A", "Millésimes retenus : " + choisis +
+  const titre = focus ? "Focus P2A – " + titrePriorites() : "P2A";
+  const page = nouvellePage(doc, titre, "Millésimes retenus : " + choisis +
     (ep ? " — " + (ep.comparable ? sousTitreComparaison() : ep.message) : ""));
 
   if(!p.lignes.length){
     bloc(doc, page, { x:MARGE, y:Y_CONTENU, w:LARG, h:1, taille:12, couleur:"#6F6862",
-                      texte:"Aucune ligne ne porte les millésimes sélectionnés." });
+                      texte:focus ? "Aucune ligne ne correspond aux priorités retenues."
+                                  : "Aucune ligne ne porte les millésimes sélectionnés." });
     return;
   }
 
-  // --- chiffres clés : avancement global et effectifs par nature ---
   const somme = p.lignes.reduce((s, l) => s + l.avancement, 0);
   const global = Math.round(somme / p.lignes.length);
   const parNature = n => p.lignes.filter(l => l.nature === n).length;
@@ -2002,41 +2144,58 @@ function pageP2A(doc, c){
             null, "neutre", yCart);
   cartouche(doc, page, xCart + largeur + 0.4, largeur, parNature("AV"), "AV", "#7f6f6c",
             null, "neutre", yCart);
-  cartouche(doc, page, xCart + 2 * (largeur + 0.4), largeur, parNature("MEO"), "MEO", "#F79646",
-            null, "neutre", yCart);
+  const x3 = xCart + 2 * (largeur + 0.4);
+  if(focus){
+    cartouche(doc, page, x3, largeur, p.lignes.length,
+              listePrioritesRetenues().sort(comparePriorites).join(", "),
+              "#F79646", null, "neutre", yCart);
+  }else{
+    const compte = {};
+    p.lignes.forEach(l => {
+      const v = txt(l.priorite) || SANS_PRIORITE;
+      compte[v] = (compte[v] || 0) + 1;
+    });
+    const parts = Object.keys(compte).sort(comparePriorites)
+      .map(v => ({ valeur:compte[v], libelle:v }));
+    cartoucheMulti(doc, page, x3, largeur, parts, "#F79646", yCart);
+  }
 
-  // --- répartition groupement x statut ---
-  const teintes = {
-    "a engager":  { fond:"#fbebeb", couleur:"#993333" },
-    "en cours":   { fond:"#fff8db", couleur:"#7a6000" },
-    "termine":    { fond:"#edf5e0", couleur:"#3b6d11" },
-    "interrompu": { fond:"#f1efe8", couleur:"#666660" }
-  };
-  const ordre = ["a engager", "en cours", "termine", "interrompu"];
   const groupements = [...new Set(p.lignes.map(l => l.groupement))]
     .sort((a, b) => a.localeCompare(b, "fr"));
-
+  const totaux = {};
+  ORDRE_STATUTS.forEach(k => totaux[k] = 0);
   const matrice = groupements.map(g => {
     const membres = p.lignes.filter(l => l.groupement === g);
     const compte = {};
-    ordre.forEach(k => compte[k] = membres.filter(l =>
-      statutDeLigne(l.avancement, l.interrompu) === k).length);
-    return [g].concat(ordre.map(k =>
-      Object.assign({ texte: compte[k] ? String(compte[k]) : "—" }, teintes[k])))
+    ORDRE_STATUTS.forEach(k => {
+      compte[k] = membres.filter(l => statutDeLigne(l.avancement, l.interrompu) === k).length;
+      totaux[k] += compte[k];
+    });
+    return [g].concat(ORDRE_STATUTS.map(k =>
+      Object.assign({ texte: compte[k] ? String(compte[k]) : "—" }, TEINTES_STATUT[k])))
       .concat([{ texte:String(membres.length), gras:true }]);
   });
 
-  // Le tableau remonte sous les chiffres clés et resserre ses lignes
-  // pour tenir sur la diapositive quel que soit le nombre de groupements.
-  const yTable = 8.1;
+  let yTable = 8.1;
+  if(focus){
+    rangeeTotaux(doc, page, 8.1, totaux);
+    yTable = 9.2;
+  }
+  // Le tableau resserre ses lignes pour tenir sur la diapositive.
   const hLigne = Math.min(0.72,
     Math.max(0.48, (Y_MAX - yTable - 0.75) / Math.max(1, groupements.length)));
-  tableauPagine(doc, { page, x:MARGE, y:yTable,
-    largeurs:[8.0, 3.4, 3.4, 3.4, 3.4, 3.6],
+  tableauPagine(doc, { page, x:MARGE, y:yTable, largeurs:LARGEURS_MATRICE,
     entetes:["Groupement", "À engager", "En cours", "Terminé", "Interrompu", "Total"],
     alignes:["start", "center", "center", "center", "center", "center"],
     hauteurFixe:hLigne, titreSuite:null, lignes:matrice });
+}
 
+/* Pages « terminés » et « détail par groupement » sur le périmètre filtré. */
+function pagesP2ASuite(doc, c){
+  const p = c.p2a;
+  if(!p.lignes.length) return;
+  const groupements = [...new Set(p.lignes.map(l => l.groupement))]
+    .sort((a, b) => a.localeCompare(b, "fr"));
   // --- focus sur les lignes terminées ---
   const termines = p.lignes.filter(l => statutDeLigne(l.avancement, l.interrompu) === "termine")
     .sort((a, b) => a.groupement.localeCompare(b.groupement, "fr") ||
@@ -2115,6 +2274,13 @@ function pageP2A(doc, c){
     entetes:["Groupement", "Libellé", "Nature", "Porteur", "Avancement"],
     alignes:["start", "start", "center", "start", "center"],
     lignes:detail });
+}
+
+function pageP2A(doc, c, cComplet){
+  pageIntercalaire(doc, "P2A");
+  pageP2ASynthese(doc, cComplet || c, false);
+  if(filtrePrioriteActif()) pageP2ASynthese(doc, c, true);
+  pagesP2ASuite(doc, c);
 }
 
 
@@ -2565,9 +2731,9 @@ async function genere(){
   if(inclus.includes("d1")) pageActualites(doc, c);
   if(inclus.includes("d2")) pageNature(doc, c, c.peps, "PEPS", "peps");
   if(inclus.includes("d3")) pageNature(doc, c, c.av, "Actions à valoriser", "av");
-  if(inclus.includes("d4")) pageMEC(doc, c);
+  if(inclus.includes("d4")) pageMEC(doc, c, calculComplet);
   if(inclus.includes("d5")){
-    pageP2A(doc, c);
+    pageP2A(doc, c, calculComplet);
     pagesPlanningP2A(doc, c);
     pagesExergue(doc, c);
   }
@@ -3803,6 +3969,9 @@ $("groupementRevue").addEventListener("change", () => {
 $("inclureAnnee").addEventListener("change", () => {
   cfg.inclureAnnee = $("inclureAnnee").checked; sauve();
 });
+$("triListeMEC").addEventListener("change", () => {
+  cfg.triListeMEC = $("triListeMEC").value; sauve();
+});
 $("intercalaires").addEventListener("change", () => {
   cfg.intercalaires = $("intercalaires").checked; sauve();
 });
@@ -3820,6 +3989,7 @@ async function demarre(){
     $("annee").value = cfg.annee || new Date().getFullYear();
     if(cfg.intercalaires === undefined) cfg.intercalaires = false;
     $("intercalaires").checked = cfg.intercalaires;
+    $("triListeMEC").value = cfg.triListeMEC === "groupement" ? "groupement" : "categorie";
     ["detPriorite", "detPorteur", "detGroupement", "detCommentaire"].forEach(id => {
       if(cfg[id] === undefined) cfg[id] = true;
       $(id).checked = cfg[id];
