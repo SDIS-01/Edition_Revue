@@ -1111,7 +1111,7 @@ function instantane(c){
     av:   { stock:c.av.stock,   termines:c.av.termines.length,
             avancement:ja.global, parCategorie:ja.parCategorie },
     mec:  { reco:c.mec.familles.reco, rappel:c.mec.familles.rappel, parValeur,
-            avancement:jm.global, parCategorie:jm.parCategorie },
+            avancement:jm.global, parCategorie:jm.parCategorie, parStatut:jm.parStatut },
     p2a:  { millesimes:[...(cfg.p2aChoisis || [])].sort(),
             total:c.p2a.lignes.length, parMillesime:c.p2a.parMillesime,
             avancement:j2.global, parCategorie:j2.parCategorie }
@@ -1213,6 +1213,8 @@ function calculeEcarts(){
             recoReste:delta(a.mec.reco.reste, b.mec.reco.reste),
             rappelTotal:delta(a.mec.rappel.total, b.mec.rappel.total),
             rappelReste:delta(a.mec.rappel.reste, b.mec.rappel.reste),
+            aEngager:delta((a.mec.parStatut || {})["a engager"], (b.mec.parStatut || {})["a engager"]),
+            enCours:delta((a.mec.parStatut || {})["en cours"], (b.mec.parStatut || {})["en cours"]),
             parValeur:(() => {
               const o = {};
               Object.keys(a.mec.parValeur).forEach(v => {
@@ -1611,11 +1613,18 @@ function camembert(parts, titre){
   });
 
   g.textAlign = "left";
-  g.font = "30px Tahoma, sans-serif";
-  const xPastille = 84, xTexte = 128, dispo = cv.width - xTexte - 20;
+  // Au-delà de deux parts, la légende passe sur deux colonnes pour tenir sous le graphique.
+  const deuxCol = parts.length > 2;
+  g.font = (deuxCol ? "24px" : "30px") + " Tahoma, sans-serif";
+  const lCol = deuxCol ? (cv.width - 20) / 2 : cv.width;
   parts.forEach((p, i) => {
-    const y = GRAPH.yLegende + i * 52;
-    g.fillStyle = p.couleur; g.fillRect(xPastille, y - 16, 32, 32);
+    const col = deuxCol ? i % 2 : 0;
+    const rangee = deuxCol ? Math.floor(i / 2) : i;
+    const xPastille = deuxCol ? 10 + col * lCol : 84;
+    const xTexte = xPastille + (deuxCol ? 34 : 44);
+    const dispo = deuxCol ? lCol - 40 : cv.width - xTexte - 20;
+    const y = GRAPH.yLegende + rangee * 52;
+    g.fillStyle = p.couleur; g.fillRect(xPastille, y - (deuxCol ? 12 : 16), deuxCol ? 24 : 32, deuxCol ? 24 : 32);
     g.fillStyle = "#26221f";
     const pct = Math.round((p.valeur / total) * 100);
     let texte = p.nom + " — " + p.valeur + " (" + pct + " %)";
@@ -1881,19 +1890,19 @@ function pageMEC(doc, c){
   const sousTitre = "Situation au " + jjmmaaaa(new Date()) +
                     (ecarts ? " — " + sousTitreComparaison() : "");
   const page = nouvellePage(doc, "MEC 2023", sousTitre);
-  const largeur = (LARG - 0.8) / 3;
-  const reste = m.familles.reco.reste + m.familles.rappel.reste;
+  const largeur = (LARG - 1.2) / 4;
   const jeu = jeuMEC(c);
+  const st = jeu.parStatut;
   const global = Math.round(jeu.global * 100);
 
   cartouche(doc, page, MARGE, largeur, m.familles.reco.total,
             "recommandations", "#C0504D", em ? em.recoTotal : null, "neutre");
   cartouche(doc, page, MARGE + largeur + 0.4, largeur, m.familles.rappel.total,
             "rappels au droit", "#7f6f6c", em ? em.rappelTotal : null, "neutre");
-  cartouche(doc, page, MARGE + 2 * (largeur + 0.4), largeur, reste,
-            "en cours de réalisation", "#F79646",
-            em && em.recoReste != null && em.rappelReste != null
-              ? em.recoReste + em.rappelReste : null, "bas");
+  cartouche(doc, page, MARGE + 2 * (largeur + 0.4), largeur, st["a engager"] || 0,
+            "à engager", "#953735", em ? em.aEngager : null, "bas");
+  cartouche(doc, page, MARGE + 3 * (largeur + 0.4), largeur, st["en cours"] || 0,
+            "en cours de réalisation", "#F79646", em ? em.enCours : null, "bas");
 
   // Deux graphiques de même gabarit, de même taille, centrés sur la largeur.
   const yGraph = Y_CONTENU + 0.1;
@@ -1903,11 +1912,13 @@ function pageMEC(doc, c){
   image(doc, page, { x:xGauche, y:yGraph, w:lGraph, h:hGraph,
                      base64:anneauAvancement(global, "Avancement global") });
 
+  // Mêmes décomptes que la matrice ci-dessous ; les statuts vides sont omis.
   const png = camembert([
-    { nom:"Terminé", valeur:(m.familles.reco.total + m.familles.rappel.total) - reste,
-      couleur:"#9BBB59" },
-    { nom:"En cours de réalisation", valeur:reste, couleur:"#C0504D" }
-  ], "État d'avancement");
+    { nom:"À engager",  valeur:st["a engager"] || 0,  couleur:"#C0504D" },
+    { nom:"En cours",   valeur:st["en cours"] || 0,   couleur:"#FFCC00" },
+    { nom:"Terminé",    valeur:st["termine"] || 0,    couleur:"#9BBB59" },
+    { nom:"Interrompu", valeur:st["interrompu"] || 0, couleur:"#595959" }
+  ].filter(p => p.valeur > 0), "État d'avancement");
   image(doc, page, { x:xDroite, y:yGraph, w:lGraph, h:hGraph, base64:png });
 
   // Matrice catégorie x statut, comme le bloc focus des PDF, aux teintes du diaporama.
