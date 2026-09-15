@@ -2091,8 +2091,11 @@ function pageMECListe(doc, c){
     rangListe(a) - rangListe(b) ||
     String(a.libelle).localeCompare(String(b.libelle), "fr"));
 
+  const mentions = [];
+  if(filtreCategorieActif()) mentions.push(mentionCategories().replace(/^ — /, ""));
+  if(parGroupement) mentions.push("Tri par groupement");
   const suite = nouvellePage(doc, "MEC 2023 — en cours de réalisation",
-    parGroupement ? "Tri par groupement" : null);
+    mentions.join(" — ") || null);
   tableauPagine(doc, { page:suite, x:MARGE, y:Y_TABLEAU_SEUL,
     largeurs:[9.8, 5.4, 3.0, 4.0, 3.0],
     entetes:["Libellé", "Catégorie", "Groupement", "Porteur", "Avancement"],
@@ -2110,7 +2113,8 @@ function pageMEC(doc, c, cComplet){
   const complet = cComplet || c;
   pageMECSynthese(doc, complet, sansFiltres(() => jeuMEC(complet)), false);
   if(filtreCategorieActif()) pageMECSynthese(doc, c, jeuMEC(c), true);
-  pageMECListe(doc, complet);
+  // La liste suit le filtre de catégorie.
+  pageMECListe(doc, c);
 }
 
 /* ---------- P2A ---------- */
