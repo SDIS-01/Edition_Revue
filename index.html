@@ -77,7 +77,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-23-81</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-23-82</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -183,6 +183,7 @@
           <label><input type="radio" name="natureP2A" value="tous" checked> PEPS, AV et MEO</label>
           <label><input type="radio" name="natureP2A" value="peps"> PEPS uniquement (avec leurs MEO)</label>
           <label><input type="radio" name="natureP2A" value="av"> AV uniquement</label>
+          <label><input type="radio" name="natureP2A" value="projets"> PEPS et AV (sans les MEO)</label>
         </div>
         <p class="aide">Ne s'applique qu'au PDF P2A. Avec une nature choisie, la comparaison
           d'avancement avec une édition archivée n'est pas imprimée : l'édition archivée
@@ -1210,7 +1211,8 @@ function majRecap(){
       const nat = t.id === "p2a" ? natureP2A() : "tous";
       const n = c.p2a.lignes.filter(l => natureP2ARetenue(l.nature, nat)).length;
       parts.push(n + " ligne(s) P2A" +
-        (nat !== "tous" ? ", " + LIBELLES_NATURE_P2A[nat] + " uniquement" : "") +
+        (nat !== "tous" ? ", " + { peps:"PEPS et MEO uniquement", av:"AV uniquement",
+                             projets:"PEPS et AV, sans MEO" }[nat] : "") +
         ((cfg.p2aChoisis || []).length ? " (" + cfg.p2aChoisis.join(", ") + ")"
                                        : " — aucun millésime coché"));
     }
@@ -1236,13 +1238,15 @@ function majRecap(){
 }
 
 /* Nature des lignes du PDF P2A : toutes, PEPS avec leurs MEO, ou AV seules. */
-const LIBELLES_NATURE_P2A = { tous:"", peps:"PEPS et MEO", av:"AV" };
+const LIBELLES_NATURE_P2A = { tous:"", peps:"PEPS et MEO", av:"AV", projets:"PEPS et AV sans MEO" };
+const SUFFIXES_NATURE_P2A = { peps:"PEPS", av:"AV", projets:"PEPS_AV" };
 function natureP2A(){
-  return ["peps", "av"].includes(cfg.natureP2A) ? cfg.natureP2A : "tous";
+  return ["peps", "av", "projets"].includes(cfg.natureP2A) ? cfg.natureP2A : "tous";
 }
 function natureP2ARetenue(nature, choix){
   if(choix === "peps") return nature !== "AV";
   if(choix === "av") return nature === "AV";
+  if(choix === "projets") return nature === "PEPS" || nature === "AV";
   return true;
 }
 
@@ -3556,8 +3560,11 @@ function pageDetailPdf(doc, ctx, jeu){
   doc.text(jeu.titreDetail, MARGE_P, y);
   y += 8;
 
-  for(const cat of jeu.categories){
-    const membres = jeu.lignes.filter(l => l.categorie === cat.cle);
+  // Même découpage et même ordre que le sommaire : groupes, puis libellés par ordre alphabétique.
+  const champGroupe = jeu.sommaireCle || "categorie";
+  for(const cat of categoriesOrdonnees(jeu)){
+    const membres = jeu.lignes.filter(l => l[champGroupe] === cat.cle)
+      .sort((a, b) => String(a.libelle).localeCompare(String(b.libelle), "fr", { numeric:true }));
     if(!membres.length) continue;
 
     y = assurerPlace(doc, ctx, y, 30);
@@ -3586,23 +3593,19 @@ function pageDetailPdf(doc, ctx, jeu){
     };
     y = enteteGroupe(y, false);
 
-    for(const rang of STATUTS_P){
-      const sous = membres.filter(l => l.statut === rang.cle);
-      if(!sous.length) continue;
-      const cible = { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 8) };
-      ancres.set(cat.cle + "|" + rang.cle, cible);
-      const clePrefixe = String(cat.cle).split(" · ")[0] + "|" + rang.cle;
-      if(!ancres.has(clePrefixe)) ancres.set(clePrefixe, cible);
-
-      for(const r of sous){
+    {
+      for(const r of membres){
         doc.setFontSize(7.5);
         const cellules = colonnes.map(c => c.cle === "avancement" ? [""]
           : c.cle === "echeance" ? [r.echeance ? jjmmaaaa(r.echeance) : "—"]
           : lignesCellule(doc, r[c.cle], c.l, c.cle === "commentaire" ? 8 : 3));
         const hauteur = Math.max(6, Math.max(...cellules.map(t => t.length)) * 3.4 + 3);
         if(y + hauteur > bas) y = enteteGroupe(nouvelleFeuillePdf(doc, ctx), true);
-        ancres.set("ligne:" + r.id,
-                   { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 6) });
+        const cible = { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 6) };
+        ancres.set("ligne:" + r.id, cible);
+        // Lien depuis un chiffre du focus : première ligne du groupe ayant ce statut.
+        const cleStatut = cat.cle + "|" + r.statut;
+        if(!ancres.has(cleStatut)) ancres.set(cleStatut, cible);
         colonnes.forEach((c, i) => {
           if(c.cle === "avancement"){
             bulleAvancement(doc, c.x, y + 0.4, r.avancement, r.statut, c.l);
@@ -3625,6 +3628,13 @@ function pageDetailPdf(doc, ctx, jeu){
 
 /* ---------- Sommaire ---------- */
 
+/* Ordre des groupes, commun au sommaire et au détail. */
+function categoriesOrdonnees(jeu){
+  const liste = [...(jeu.categoriesSommaire || jeu.categories)];
+  return jeu.ordreImpose ? liste
+    : liste.sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
+}
+
 function dessinerSommaire(doc, ctx, jeu, ancres){
   const avant = doc.internal.getNumberOfPages();
   let y = nouvelleFeuillePdf(doc, ctx);
@@ -3638,12 +3648,10 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
   y += 9;
 
   const champ = jeu.sommaireCle || "categorie";
-  const categories = jeu.ordreImpose ? [...(jeu.categoriesSommaire || jeu.categories)]
-    : [...(jeu.categoriesSommaire || jeu.categories)]
-      .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
+  const categories = categoriesOrdonnees(jeu);
   for(const cat of categories){
     const membres = jeu.lignes.filter(l => l[champ] === cat.cle)
-      .sort((a, b) => String(a.libelle).localeCompare(String(b.libelle), "fr"));
+      .sort((a, b) => String(a.libelle).localeCompare(String(b.libelle), "fr", { numeric:true }));
     if(!membres.length) continue;
     if(y > bas - 14) y = nouvelleFeuillePdf(doc, ctx);
 
@@ -3969,7 +3977,7 @@ async function generePDF(type){
 
   poserLiens(doc, synthese.zones, ancres);
   piedDePagePdf(doc, ctx);
-  doc.save(type.fichier + (nature !== "tous" ? "_" + nature.toUpperCase() : "") +
+  doc.save(type.fichier + (nature !== "tous" ? "_" + SUFFIXES_NATURE_P2A[nature] : "") +
            "_" + c.annee + ".pdf");
   alerte("PDF créé : " + doc.getNumberOfPages() + " page(s).", true);
 }
