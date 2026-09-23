@@ -77,7 +77,7 @@
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-23-83</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-23-85</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -196,7 +196,8 @@
       <div class="toutaucun"><button type="button" data-zone="priorites" data-val="1">Tout cocher</button><button type="button" data-zone="priorites" data-val="0">Tout décocher</button></div>
         <div id="priorites" class="cases"></div>
       <p class="aide" id="etatPriorites">Décochez une priorité pour l'exclure de la revue
-        (projets et actions uniquement, les préconisations MEC ne sont pas filtrées).</p>
+        (projets et actions uniquement, les préconisations MEC ne sont pas filtrées).
+        Les lignes sans priorité sont toujours incluses.</p>
     </fieldset>
 
     <fieldset id="fsCat">
@@ -917,20 +918,23 @@ function prioriteDe(l){
 }
 
 function filtrePrioriteActif(){
-  return !!cfg.colPriorite && (cfg.prioritesExclues || []).length > 0;
+  return !!cfg.colPriorite &&
+    (cfg.prioritesExclues || []).some(p => p !== SANS_PRIORITE);
 }
 
 function prioriteRetenue(l){
   return prioriteValeurRetenue(prioriteDe(l));
 }
 
+/* Les lignes sans priorité ne sont jamais filtrées. */
 function prioriteValeurRetenue(v){
   if(!filtrePrioriteActif()) return true;
-  return !cfg.prioritesExclues.includes(txt(v) || SANS_PRIORITE);
+  const p = txt(v) || SANS_PRIORITE;
+  return p === SANS_PRIORITE || !cfg.prioritesExclues.includes(p);
 }
 
 function listePrioritesRetenues(){
-  const toutes = [...new Set(recPEPS.map(prioriteDe))];
+  const toutes = [...new Set(recPEPS.map(prioriteDe))].filter(p => p !== SANS_PRIORITE);
   return toutes.filter(p => !(cfg.prioritesExclues || []).includes(p))
     .sort((a, b) => a.localeCompare(b, "fr", { numeric:true }));
 }
@@ -1004,11 +1008,11 @@ function construitCategories(){
 
 function construitPriorites(){
   const zone = $("priorites"); zone.innerHTML = "";
-  cfg.prioritesExclues = cfg.prioritesExclues || [];
+  // « Sans priorité » n'est pas proposé : ces lignes restent toujours dans la revue.
+  cfg.prioritesExclues = (cfg.prioritesExclues || []).filter(p => p !== SANS_PRIORITE);
   if(!cfg.colPriorite){ zone.textContent = "Choisissez d'abord la colonne de priorité."; majArchivage(); return; }
-  const valeurs = [...new Set(recPEPS.map(prioriteDe))]
-    .sort((a, b) => a === SANS_PRIORITE ? 1 : b === SANS_PRIORITE ? -1
-                    : a.localeCompare(b, "fr", { numeric:true }));
+  const valeurs = [...new Set(recPEPS.map(prioriteDe))].filter(p => p !== SANS_PRIORITE)
+    .sort((a, b) => a.localeCompare(b, "fr", { numeric:true }));
   if(!valeurs.length){ zone.textContent = "Aucune priorité trouvée dans cette colonne."; majArchivage(); return; }
   valeurs.forEach(v => {
     const lab = document.createElement("label");
@@ -3288,16 +3292,25 @@ function pageSynthesePdf(doc, ctx, jeu){
   doc.setFontSize(8); doc.setTextColor(...GRIS_P);
   doc.text("Avancement global", MARGE_P, y);
 
-  const teinte = statutParCle(statutDeLigne(jeu.global * 100, false));
-  cadreValeur(doc, MARGE_P, y + 2, 46, 18, jeu.libelleGlobal || "au " + jjmmaaaa(new Date()),
-              pourcentPdf(jeu.global), teinte.encre, teinte.fond);
-
-  if(jeu.evolution){
-    const avant = jeu.evolution.globalAvant;
-    const teinteAvant = statutParCle(statutDeLigne(avant * 100, false));
-    cadreValeur(doc, MARGE_P + 50, y + 2, 46, 18, "au " + jeu.evolution.date,
-                pourcentPdf(avant), teinteAvant.encre, teinteAvant.fond);
-  }
+  // Cadres d'avancement : global, puis sélection filtrée, puis édition de référence.
+  // Leur largeur se réduit pour tenir avant la légende de droite (x = 118).
+  const cadres = [{ libelle: jeu.libelleGlobal || "au " + jjmmaaaa(new Date()),
+                    court: jeu.libelleGlobalCourt || "au " + jjmmaaaa(new Date()),
+                    valeur: jeu.global }];
+  if(jeu.selection) cadres.push({ libelle: jeu.selection.libelle, court: jeu.selection.court,
+                                  valeur: jeu.selection.global, vide: !jeu.total });
+  if(jeu.evolution) cadres.push({ libelle: "au " + jeu.evolution.date,
+                                  court: "au " + jeu.evolution.date,
+                                  valeur: jeu.evolution.globalAvant });
+  const ecart = 3.5;
+  const largeur = Math.min(46, (118 - MARGE_P - 4 - ecart * (cadres.length - 1)) / cadres.length);
+  cadres.forEach((cd, k) => {
+    const teinte = statutParCle(statutDeLigne(cd.valeur * 100, false));
+    doc.setFontSize(7.5);
+    const lib = tronqueA(doc, nettoiePdf(cadres.length > 2 ? cd.court : cd.libelle), largeur - 3);
+    cadreValeur(doc, MARGE_P + k * (largeur + ecart), y + 2, largeur, 18, lib,
+                cd.vide ? "—" : pourcentPdf(cd.valeur), teinte.encre, teinte.fond);
+  });
 
   if(jeu.natures && jeu.natures.length){
     doc.setFontSize(8); doc.setTextColor(...GRIS_P);
@@ -3941,9 +3954,18 @@ async function generePDF(type){
   else if(type.id === "p2a"){
     jeu = jeuP2A(c, nature); cleBilan = "p2a";
     // Avancement global : toujours celui du P2A entier (millésimes cochés),
-    // sans filtre de priorité ni de nature.
+    // sans filtre de priorité ni de nature. La sélection filtrée a son propre cadre.
+    const globalSelection = jeu.global;
     jeu.global = jeuP2A(calculComplet || c, "tous").global;
     jeu.libelleGlobal = "ensemble du P2A au " + jjmmaaaa(new Date());
+    jeu.libelleGlobalCourt = "ensemble du P2A";
+    const morceaux = [];
+    if(filtrePrioriteActif()) morceaux.push(listePrioritesRetenues().join(", ") || "aucune priorité");
+    if(nature !== "tous") morceaux.push(LIBELLES_NATURE_P2A[nature]);
+    if(morceaux.length){
+      jeu.selection = { global: globalSelection, court: morceaux.join(" - "),
+                        libelle: morceaux.join(" - ") + " au " + jjmmaaaa(new Date()) };
+    }
   }
   else{ alerte("Type de revue inconnu."); return; }
   // L'édition archivée porte sur toutes les natures : pas d'évolution sur un sous-ensemble.
