@@ -50,13 +50,34 @@
   .chiffre{font-size:26px;font-weight:bold}
   .duo{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   p.aide{color:var(--attenue);font-size:12px;margin:4px 0 10px}
+  /* Récapitulatif de la revue en cours */
+  .recap{display:flex;align-items:center;gap:14px;border:1px solid var(--trait);
+    border-left:4px solid var(--rouge);background:#faf9f7;padding:9px 12px;margin:0 0 14px}
+  .recap div{flex:1;min-width:0}
+  .recap .ligne1{font-weight:bold}
+  .recap .ligne2{color:var(--attenue);font-size:12px;margin-top:2px}
+  .recap .filtre{color:var(--rouge)}
+  /* Volets repliables */
+  details.volet{border:1px solid var(--trait);margin:0 0 14px;background:#fff}
+  details.volet > summary{cursor:pointer;padding:8px 12px;font-weight:bold;background:#f4f2ef;
+    list-style:none;display:flex;align-items:baseline;gap:10px}
+  details.volet > summary::-webkit-details-marker{display:none}
+  details.volet > summary::before{content:"\25B8";color:var(--rouge);font-size:11px;width:10px}
+  details.volet[open] > summary::before{content:"\25BE"}
+  details.volet > summary .resume{font-weight:normal;color:var(--attenue);font-size:12px}
+  details.volet > .corps{padding:12px 12px 0}
+  details.volet fieldset{margin-bottom:12px}
+  .toutaucun{display:flex;gap:10px;margin:0 0 6px}
+  .toutaucun button{border:none;background:none;padding:0;font:inherit;font-size:12px;
+    color:var(--rouge);cursor:pointer;text-decoration:underline}
+  p.bloque{color:var(--rouge);font-size:12px;margin:6px 0 0}
 </style>
 </head>
 <body>
 
 <header>
   <h1>Revue annuelle</h1>
-  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-09-78</span>
+  <span id="version" style="font-size:11px;color:#a09892">build 2026-09-23-81</span>
   <span id="etat">Connexion au document…</span>
 </header>
 
@@ -70,6 +91,14 @@
 
   <!-- ================= CONFIGURATION ================= -->
   <section id="secConf">
+
+    <div class="recap" id="recap">
+      <div>
+        <div class="ligne1" id="recapLigne1">Chargement des données…</div>
+        <div class="ligne2" id="recapLigne2"></div>
+      </div>
+      <button class="action" id="btnGenRecap">Créer le diaporama</button>
+    </div>
 
     <fieldset>
       <legend>Revue à éditer</legend>
@@ -118,6 +147,18 @@
     </fieldset>
 
     <fieldset>
+      <legend>Sponsor CODIR</legend>
+      <div class="grille">
+        <div><label for="tSD">Table des sous-directions</label><select id="tSD"></select></div>
+        <div><label for="sdCle">Colonne de rapprochement</label><select id="sdCle"></select></div>
+        <div><label for="sdSponsor">Colonne du sponsor</label><select id="sdSponsor"></select></div>
+      </div>
+      <p class="aide" id="etatSponsor">Le sponsor d'une ligne est lu dans la table des sous-directions,
+        en rapprochant la colonne « Sous-direction » des projets et des recommandations
+        de la colonne de rapprochement. Une action sans sous-direction reprend celle de son projet.</p>
+    </fieldset>
+
+    <fieldset>
       <legend>Familles de recommandations</legend>
       <p class="aide">Classez chaque valeur trouvée dans la colonne de type, pour le comptage de la diapositive 4.</p>
       <div id="familles" class="grille"></div>
@@ -128,26 +169,61 @@
     </div>
     </div>
 
-    <fieldset id="blocGroupement" hidden>
-      <legend>Périmètre de la revue par groupement</legend>
-      <div class="grille">
-        <div><label for="groupementRevue">Groupement</label>
-          <select id="groupementRevue"></select></div>
-      </div>
-      <div class="cases" style="margin-top:8px">
-        <label><input type="checkbox" id="inclureAnnee" checked>
-          Inclure les terminés et interrompus de l'année</label>
-      </div>
-      <p class="aide">« Tous les groupements » produit un document unique, un chapitre par groupement.</p>
-    </fieldset>
-
-    <fieldset>
+<details class="volet" id="voletPerimetre" open>
+      <summary>Périmètre <span class="resume" id="voletPerimetreResume"></span></summary>
+      <div class="corps">
+    <fieldset id="fsP2A">
       <legend>Millésimes P2A</legend>
       <p class="aide">Une ligne portant plusieurs millésimes n'apparaît qu'une fois dans la revue.</p>
-      <div id="p2a" class="cases"></div>
+      <div class="toutaucun"><button type="button" data-zone="p2a" data-val="1">Tout cocher</button><button type="button" data-zone="p2a" data-val="0">Tout décocher</button></div>
+        <div id="p2a" class="cases"></div>
+      <div id="blocNatureP2A" style="margin-top:10px">
+        <label>Nature des lignes imprimées</label>
+        <div class="cases" id="natureP2A">
+          <label><input type="radio" name="natureP2A" value="tous" checked> PEPS, AV et MEO</label>
+          <label><input type="radio" name="natureP2A" value="peps"> PEPS uniquement (avec leurs MEO)</label>
+          <label><input type="radio" name="natureP2A" value="av"> AV uniquement</label>
+        </div>
+        <p class="aide">Ne s'applique qu'au PDF P2A. Avec une nature choisie, la comparaison
+          d'avancement avec une édition archivée n'est pas imprimée : l'édition archivée
+          porte sur toutes les natures.</p>
+      </div>
     </fieldset>
 
-    <fieldset>
+    <fieldset id="fsPrio">
+      <legend>Priorités</legend>
+      <div class="toutaucun"><button type="button" data-zone="priorites" data-val="1">Tout cocher</button><button type="button" data-zone="priorites" data-val="0">Tout décocher</button></div>
+        <div id="priorites" class="cases"></div>
+      <p class="aide" id="etatPriorites">Décochez une priorité pour l'exclure de la revue
+        (projets et actions uniquement, les préconisations MEC ne sont pas filtrées).</p>
+    </fieldset>
+
+    <fieldset id="fsCat">
+      <legend>Catégories MEC 2023</legend>
+      <div class="toutaucun"><button type="button" data-zone="categoriesMEC" data-val="1">Tout cocher</button><button type="button" data-zone="categoriesMEC" data-val="0">Tout décocher</button></div>
+        <div id="categoriesMEC" class="cases"></div>
+      <p class="aide">Décochez une catégorie pour l'exclure de la revue.</p>
+      <div class="grille" style="margin-top:8px" id="blocTriMEC">
+        <div><label for="triListeMEC">Tri de la liste</label>
+          <select id="triListeMEC">
+            <option value="categorie">Par catégorie</option>
+            <option value="groupement">Par groupement</option>
+          </select></div>
+      </div>
+    </fieldset>
+      </div>
+    </details>
+
+    <details class="volet" id="voletContenu" open>
+      <summary>Contenu <span class="resume" id="voletContenuResume"></span></summary>
+      <div class="corps">
+    <fieldset id="fsDiapos">
+      <legend>Diapositives</legend>
+      <div class="cases" id="diapos"></div>
+      <p class="aide">Modifier une case bascule le type sur « Sélection libre ».</p>
+    </fieldset>
+
+    <fieldset id="fsPlanning">
       <legend>P2A - Planning et Focus projet</legend>
       <div class="cases">
         <label><input type="checkbox" id="planningP2A" checked>
@@ -161,47 +237,25 @@
       </div>
     </fieldset>
 
-    <fieldset>
-      <legend>Diapositives</legend>
-      <div class="cases" id="diapos"></div>
-      <div class="cases" style="margin-top:6px">
-        <label><input type="checkbox" id="intercalaires">
-          Insérer une diapositive d'intercalaire avant chaque partie</label>
-      </div>
-      <p class="aide">Modifier une case bascule le type sur « Sélection libre ».</p>
-    </fieldset>
-
-    <fieldset>
-      <legend>Priorités</legend>
-      <div id="priorites" class="cases"></div>
-      <p class="aide" id="etatPriorites">Décochez une priorité pour l'exclure de la revue
-        (projets et actions uniquement, les préconisations MEC ne sont pas filtrées).</p>
-    </fieldset>
-
-    <fieldset>
-      <legend>Catégories MEC 2023</legend>
-      <div id="categoriesMEC" class="cases"></div>
-      <p class="aide">Décochez une catégorie pour l'exclure de la revue.</p>
-      <div class="grille" style="margin-top:8px">
-        <div><label for="triListeMEC">Tri de la liste</label>
-          <select id="triListeMEC">
-            <option value="categorie">Par catégorie</option>
-            <option value="groupement">Par groupement</option>
-          </select></div>
-      </div>
-    </fieldset>
-
-    <fieldset>
+    <fieldset id="fsDetail">
       <legend>Colonnes du détail (PDF)</legend>
       <div class="cases" id="colDetail">
         <label><input type="checkbox" id="detPriorite" checked> Priorité</label>
         <label><input type="checkbox" id="detPorteur" checked> Porteur</label>
         <label><input type="checkbox" id="detGroupement" checked> Groupement</label>
+        <label><input type="checkbox" id="detSponsor" checked> Sponsor CODIR</label>
         <label><input type="checkbox" id="detCommentaire" checked> Commentaire</label>
+        <label><input type="checkbox" id="detEcheance" checked> Échéance</label>
       </div>
-      <p class="aide">S'applique aux tableaux de détail et au sommaire des revues PDF.</p>
+      <p class="aide">S'applique aux tableaux de détail et au sommaire des revues PDF. Une échéance dépassée
+        sur une ligne ni terminée ni interrompue est imprimée en rouge.</p>
     </fieldset>
+      </div>
+    </details>
 
+    <details class="volet" id="voletHisto">
+      <summary>Historique et comparaison <span class="resume" id="voletHistoResume"></span></summary>
+      <div class="corps">
     <fieldset>
       <legend>Historique</legend>
       <div class="grille">
@@ -209,6 +263,7 @@
           <input type="text" id="libelleEdition" placeholder="Revue de rentrée 2026"></div>
         <div style="align-self:end"><button class="neutre" id="btnArchive">Archiver l'édition</button></div>
       </div>
+      <p class="bloque" id="motifArchive" hidden></p>
       <p class="aide" id="etatHisto">L'archivage enregistre les chiffres du jour dans la table choisie.</p>
     </fieldset>
 
@@ -225,7 +280,10 @@
       <p class="aide">Les écarts sont calculés dans le sens comparée − référence et reportés sur
         toutes les diapositives.</p>
     </fieldset>
-  </section>
+      </div>
+    </details>
+
+      </section>
 
   <!-- ================= APERÇU ================= -->
   <section id="secGen" hidden>
@@ -262,7 +320,8 @@ const CHAMPS_PEPS = [
   ["colCommentaire","Commentaire"],
   ["colIdProjet",   "Identifiant du projet parent"],
   ["colIdAction",   "Identifiant de la ligne (ID_Action_MEO)"],
-  ["colEchPrev",    "Échéance prévisionnelle"]
+  ["colEchPrev",    "Échéance prévisionnelle"],
+  ["colSousDirection", "Sous-direction (pour le sponsor CODIR)"]
 ];
 
 const CHAMPS_TACHE = [
@@ -280,31 +339,21 @@ const CHAMPS_MEC = [
   ["mecStatut",     "Statut"],
   ["mecPorteur",    "Porteur"],
   ["mecGroupement", "Groupement"],
-  ["mecCommentaire","Commentaire"]
+  ["mecCommentaire","Commentaire"],
+  ["mecEcheance",   "Échéance"],
+  ["mecSousDirection", "Sous-direction (pour le sponsor CODIR)"]
 ];
 
 const TYPES = [
   { id:"complete",   nom:"Revue annuelle complète", diapos:["d1","d2","d3","d4","d5"],
     fichier:"Revue_annuelle", sortie:"odp",
     desc:"Diaporama Impress des cinq diapositives : actualités, PEPS, actions à valoriser, MEC 2023 et P2A." },
-  { id:"peps",       nom:"PEPS",                    diapos:["d2"], fichier:"Revue_PEPS",
-    sortie:"pdf",
-    desc:"PDF A4 : chiffres clés, répartition du portefeuille et projets terminés dans l'année." },
-  { id:"av",         nom:"Actions à valoriser",     diapos:["d3"], fichier:"Revue_AV",
-    sortie:"pdf",
-    desc:"PDF A4, même présentation que la revue PEPS, sur les actions à valoriser." },
-  { id:"projets",    nom:"PEPS et actions à valoriser", diapos:["d2","d3"],
-    fichier:"Revue_projets", sortie:"pdf",
-    desc:"PDF A4 : les deux volets projets sur une page de synthèse, puis leurs projets terminés." },
   { id:"mec",        nom:"MEC 2023",                diapos:["d4"], fichier:"Revue_MEC",
     sortie:"pdf",
     desc:"PDF A4 : recommandations, rappels au droit, répartition par catégorie et lignes en cours de réalisation." },
   { id:"p2a",        nom:"P2A",                     diapos:["d5"], fichier:"Revue_P2A",
     sortie:"pdf",
     desc:"PDF A4 : projets et actions des millésimes retenus, avec répartition par avancement." },
-  { id:"groupement", nom:"Revue par groupement",     diapos:["d2","d3","d4"],
-    fichier:"Revue_groupement", sortie:"pdf",
-    desc:"PDF A4 réunissant projets, actions et préconisations d'un groupement, ou de tous." },
   { id:"perso",      nom:"Sélection libre",         diapos:null, fichier:"Revue",
     sortie:"odp",
     desc:"Diaporama des diapositives que vous cochez vous-même." }
@@ -440,7 +489,7 @@ function alerte(texte, ok){
 
 async function chargeTables(){
   tables = await grist.docApi.listTables();
-  for(const sel of [$("tPEPS"), $("tMEC"), $("tHisto"), $("tTaches")]){
+  for(const sel of [$("tPEPS"), $("tMEC"), $("tHisto"), $("tTaches"), $("tSD")]){
     sel.innerHTML = '<option value="">— aucune —</option>';
     tables.forEach(t => {
       const o = document.createElement("option");
@@ -454,6 +503,10 @@ async function chargeTables(){
   if(tables.includes(th)) $("tHisto").value = th;
   const tt = cfg.tTaches || "Liste_Tâche";
   if(tables.includes(tt)) $("tTaches").value = tt;
+  // Table « Sous-direction » : son identifiant Grist varie selon la saisie du nom.
+  const tsd = cfg.tSD !== undefined ? cfg.tSD
+    : (tables.find(t => /^sous[_\-\s]?direction/i.test(t)) || "");
+  if(tables.includes(tsd)) $("tSD").value = tsd;
 }
 
 /* Les colonnes Ref / RefList renvoient des identifiants de ligne : on les remplace
@@ -551,11 +604,11 @@ async function chargeDonnees(){
   }
 
   construitMappings();
+  await chargeSponsors();
   construitP2A();
   construitPriorites();
   construitCategories();
   construitFamilles();
-  construitGroupements();
   construitExergue();
   alerte(soucis.length ? "Table illisible — " + soucis.join(" · ") : "", false);
   $("etat").textContent = recPEPS.length + " lignes projets · " + recMEC.length + " recommandations";
@@ -579,6 +632,9 @@ function selectColonne(id, libelle, colonnes, valeur){
     cfg[id] = sel.value; sauve();
     if(id === "colPriorite") construitPriorites();
     if(id === "mecType") construitCategories();
+    if(id === "colSousDirection" || id === "mecSousDirection" || id === "colIdProjet"){
+      indexeSponsors();
+    }
     recalcule();
   });
   div.append(lab, sel);
@@ -615,7 +671,10 @@ const INDICES = {
   mecGroupement:["groupement"], mecCommentaire:["commentaire","observation","remarque"],
   mecLibelle:["libelle","libellé","recommandation","intitule"],
   mecType:["reccomandation_rappel","recommandation_rappel","type"],
-  mecAvancement:["avancement"], mecStatut:["statut"], mecPorteur:["porteur","pilote"]
+  mecAvancement:["avancement"], mecStatut:["statut"], mecPorteur:["porteur","pilote"],
+  mecEcheance:["ech_prev","echeance","échéance"],
+  colSousDirection:["sous_direction","sous-direction","sousdirection","sous_dir"],
+  mecSousDirection:["sous_direction","sous-direction","sousdirection","sous_dir"]
 };
 
 function construitMappings(){
@@ -636,14 +695,133 @@ function construitMappings(){
   });
 }
 
-function construitGroupements(){
-  const sel = $("groupementRevue");
-  const liste = listeGroupements();
-  sel.innerHTML = '<option value="*">Tous les groupements</option>' +
-    liste.map(g => '<option value="' + esc(g) + '">' + esc(g) + "</option>").join("");
-  if(cfg.groupementRevue && [...sel.options].some(o => o.value === cfg.groupementRevue)){
-    sel.value = cfg.groupementRevue;
+/* ------------------------------------------------------------------ */
+/* Sponsor CODIR : chef de la sous-direction de rattachement           */
+/* ------------------------------------------------------------------ */
+
+let recSD = [], colsSD = [];
+let carteSponsors = new Map();   // valeur de rapprochement normalisée → sponsor
+let projetsParId = new Map();    // identifiant projet → ligne projet (héritage des actions)
+
+const normalise = v => String(v == null ? "" : v).normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+function optionsColonnes(sel, colonnes, valeur){
+  sel.innerHTML = '<option value="">— aucune —</option>' +
+    colonnes.map(c => '<option value="' + esc(c) + '">' + esc(c) + "</option>").join("");
+  if(valeur && colonnes.includes(valeur)) sel.value = valeur;
+}
+
+async function chargeSponsors(){
+  recSD = []; colsSD = [];
+  cfg.tSD = $("tSD").value;
+  if(cfg.tSD){
+    try{
+      const t = await grist.docApi.fetchTable(cfg.tSD);
+      recSD = versLignes(t);
+      colsSD = Object.keys(t).filter(c => c !== "id" && !c.startsWith("gristHelper_"));
+      await resoudreLignes(recSD, cfg.tSD);
+    }catch(e){ recSD = []; colsSD = []; }
   }
+  if(!cfg.sdSponsor || !colsSD.includes(cfg.sdSponsor)){
+    cfg.sdSponsor = devine(colsSD, ["chef_sous_direction", "chef", "responsable"]);
+  }
+  if(!cfg.sdCle || !colsSD.includes(cfg.sdCle)) cfg.sdCle = devineCleSD();
+  optionsColonnes($("sdCle"), colsSD, cfg.sdCle);
+  optionsColonnes($("sdSponsor"), colsSD, cfg.sdSponsor);
+  indexeSponsors();
+}
+
+/* La colonne de rapprochement retenue est celle qui reconnaît le plus
+   de valeurs de la colonne « Sous-direction » des projets et recommandations. */
+function devineCleSD(){
+  const cherchees = new Set();
+  if(cfg.colSousDirection) recPEPS.forEach(l => {
+    const v = normalise(txt(l[cfg.colSousDirection])); if(v) cherchees.add(v);
+  });
+  if(cfg.mecSousDirection) recMEC.forEach(l => {
+    const v = normalise(txt(l[cfg.mecSousDirection])); if(v) cherchees.add(v);
+  });
+  let meilleure = "", score = -1;
+  colsSD.filter(c => c !== cfg.sdSponsor).forEach(c => {
+    const vues = new Set();
+    recSD.forEach(l => clesSD(l[c]).forEach(k => vues.add(k)));
+    const n = [...cherchees].filter(v => vues.has(v)).length;
+    if(n > score){ score = n; meilleure = c; }
+  });
+  return meilleure;
+}
+
+/* Une cellule peut porter plusieurs valeurs (liste de références résolue). */
+function clesSD(v){
+  const entier = normalise(txt(v));
+  if(!entier) return [];
+  return [...new Set([entier].concat(entier.split(/\s*,\s*/)))].filter(Boolean);
+}
+
+function indexeSponsors(){
+  carteSponsors = new Map();
+  if(cfg.sdCle && cfg.sdSponsor){
+    recSD.forEach(l => {
+      const sponsor = txt(l[cfg.sdSponsor]).trim();
+      if(!sponsor) return;
+      clesSD(l[cfg.sdCle]).forEach(k => { if(!carteSponsors.has(k)) carteSponsors.set(k, sponsor); });
+    });
+  }
+  projetsParId = new Map();
+  if(cfg.colIdProjet) recPEPS.forEach(l => {
+    const nat = txt(l[cfg.colNature]).toUpperCase();
+    if(nat !== "PEPS" && nat !== "AV") return;
+    const id = txt(l[cfg.colIdProjet]);
+    if(id) projetsParId.set(id, l);
+  });
+  majEtatSponsor();
+}
+
+function sponsorsDe(valeur){
+  const brut = normalise(valeur);
+  if(!brut) return "";
+  if(carteSponsors.has(brut)) return carteSponsors.get(brut);
+  const trouves = [...new Set(brut.split(/\s*,\s*/).map(k => carteSponsors.get(k)).filter(Boolean))];
+  return trouves.join(", ");
+}
+
+/* Sponsor d'une ligne projet ou action ; une action sans sous-direction
+   reprend celle de son projet parent. */
+function sponsorProjet(l){
+  if(!cfg.colSousDirection || !carteSponsors.size) return "";
+  let v = txt(l[cfg.colSousDirection]);
+  if(!v && cfg.colIdProjet){
+    const parent = projetsParId.get(txt(l[cfg.colIdProjet]));
+    if(parent && parent !== l) v = txt(parent[cfg.colSousDirection]);
+  }
+  return sponsorsDe(v);
+}
+
+function sponsorMEC(l){
+  if(!cfg.mecSousDirection || !carteSponsors.size) return "";
+  return sponsorsDe(txt(l[cfg.mecSousDirection]));
+}
+
+function sponsorActif(source){
+  if(!carteSponsors.size) return false;
+  return source === "mec" ? !!cfg.mecSousDirection : !!cfg.colSousDirection;
+}
+
+function majEtatSponsor(){
+  const el = $("etatSponsor");
+  if(!cfg.tSD){ el.textContent = "Aucune table des sous-directions : le sponsor CODIR n'est pas imprimé."; return; }
+  if(!cfg.sdCle || !cfg.sdSponsor){ el.textContent = "Choisissez la colonne de rapprochement et la colonne du sponsor."; return; }
+  if(!cfg.colSousDirection && !cfg.mecSousDirection){
+    el.textContent = "Indiquez la colonne « Sous-direction » des projets ou des recommandations ci-dessus.";
+    return;
+  }
+  const compte = (lignes, f) => lignes.filter(l => f(l)).length;
+  const nP = cfg.colSousDirection ? compte(recPEPS, sponsorProjet) : 0;
+  const nM = cfg.mecSousDirection ? compte(recMEC, sponsorMEC) : 0;
+  el.textContent = carteSponsors.size + " sous-direction(s) reconnue(s) · sponsor trouvé pour " +
+    nP + " / " + recPEPS.length + " lignes projets et " + nM + " / " + recMEC.length +
+    " recommandations.";
 }
 
 /* Liste de sélection des éléments à mettre en exergue, filtrée par la recherche. */
@@ -852,9 +1030,12 @@ function construitPriorites(){
 /* Une édition filtrée fausserait les comparaisons : l'archivage est bloqué. */
 function majArchivage(){
   const actif = filtresActifs();
+  const motif = "Archivage impossible tant qu'un filtre de priorité ou de catégorie est actif : " +
+    "cochez toutes les priorités et catégories pour archiver.";
   $("btnArchive").disabled = actif;
-  $("btnArchive").title = actif
-    ? "Archivage impossible tant qu'un filtre de priorité ou de catégorie est actif." : "";
+  $("btnArchive").title = actif ? motif : "";
+  $("motifArchive").hidden = !actif;
+  $("motifArchive").textContent = actif ? motif : "";
 }
 
 function construitFamilles(){
@@ -888,17 +1069,44 @@ function typeCourant(){
 function majDescType(){
   const t = typeCourant();
   $("descType").textContent = t.desc;
-  $("btnGen").textContent = t.sortie === "pdf" ? "Créer le PDF" : "Créer le diaporama";
-  $("diapos").closest("fieldset").hidden = t.sortie === "pdf";
-  $("blocGroupement").hidden = t.id !== "groupement";
+  const libelle = t.sortie === "pdf" ? "Créer le PDF" : "Créer le diaporama";
+  $("btnGen").textContent = $("btnGenRecap").textContent = libelle;
+  majVisibilite();
+}
+
+/* Parties réellement produites : celles du type pour un PDF, les cases cochées pour un diaporama. */
+function partiesProduites(){
+  const t = typeCourant();
+  return t.sortie === "pdf" ? (t.diapos || []) : (cfg.diapos || []);
+}
+
+/* N'affiche que les réglages qui ont un effet sur la revue choisie. */
+function majVisibilite(){
+  const t = typeCourant(), d = partiesProduites(), odp = t.sortie !== "pdf";
+  const a = id => d.includes(id);
+  $("blocNatureP2A").hidden = t.id !== "p2a";
+  $("fsP2A").hidden      = !a("d5");
+  $("fsPrio").hidden     = !(a("d2") || a("d3") || a("d5"));
+  $("fsCat").hidden      = !a("d4");
+  $("blocTriMEC").hidden = !(odp && a("d4"));
+  $("fsDiapos").hidden   = !odp;
+  $("fsPlanning").hidden = !(odp && a("d5"));
+  $("fsDetail").hidden   = odp;
+  for(const id of ["voletPerimetre", "voletContenu"]){
+    const v = $(id);
+    v.hidden = [...v.querySelectorAll(":scope > .corps > fieldset")].every(f => f.hidden);
+  }
 }
 
 /* Types proposés par défaut dans la liste ; les autres s'activent en configuration. */
-const TYPES_VISIBLES_DEFAUT = ["complete", "projets", "mec", "p2a", "perso"];
+const TYPES_VISIBLES_DEFAUT = ["complete", "mec", "p2a", "perso"];
 
 function typesVisibles(){
-  return Array.isArray(cfg.typesVisibles) && cfg.typesVisibles.length
-    ? cfg.typesVisibles : TYPES_VISIBLES_DEFAUT;
+  const stockes = Array.isArray(cfg.typesVisibles) ? cfg.typesVisibles : [];
+  const connus = stockes.filter(id => TYPES.some(t => t.id === id));
+  // Réglage antérieur au retrait des revues PEPS, AV et groupement : on repart des types par défaut.
+  if(!connus.length || connus.length < stockes.length) return TYPES_VISIBLES_DEFAUT;
+  return connus;
 }
 
 /* Remplit la liste « Type ». Le type en cours reste proposé même s'il est masqué,
@@ -979,6 +1187,74 @@ function construitDiapos(){
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* Récapitulatif                                                       */
+/* ------------------------------------------------------------------ */
+
+function nbMECRetenues(){
+  return recMEC.filter(l => categorieRetenue(l) &&
+    ((cfg.familles && cfg.familles[txt(l[cfg.mecType]) || "(non renseigné)"]) !== "hors")).length;
+}
+
+function majRecap(){
+  const t = typeCourant(), d = partiesProduites();
+  const l1 = [t.nom + (t.sortie === "pdf" ? " (PDF)" : " (diaporama)")];
+  const l2 = [];
+  if(calcul){
+    const c = calcul, parts = [];
+    if(d.includes("d1")) parts.push("actualités");
+    if(d.includes("d2")) parts.push(c.peps.stock + " PEPS");
+    if(d.includes("d3")) parts.push(c.av.stock + " AV");
+    if(d.includes("d4")) parts.push(nbMECRetenues() + " préconisation(s)");
+    if(d.includes("d5")){
+      const nat = t.id === "p2a" ? natureP2A() : "tous";
+      const n = c.p2a.lignes.filter(l => natureP2ARetenue(l.nature, nat)).length;
+      parts.push(n + " ligne(s) P2A" +
+        (nat !== "tous" ? ", " + LIBELLES_NATURE_P2A[nat] + " uniquement" : "") +
+        ((cfg.p2aChoisis || []).length ? " (" + cfg.p2aChoisis.join(", ") + ")"
+                                       : " — aucun millésime coché"));
+    }
+    if(parts.length) l1.push(parts.join(", "));
+  }
+  const filtres = [];
+  const prioConcernee = d.includes("d2") || d.includes("d3") || d.includes("d5");
+  if(prioConcernee && filtrePrioriteActif()) filtres.push(mentionPriorites().replace(/^ — /, ""));
+  if(d.includes("d4") && filtreCategorieActif()) filtres.push(mentionCategories().replace(/^ — /, ""));
+  if(ecarts) l2.push("Comparaison avec " + ecarts.libelleB);
+  $("recapLigne1").textContent = l1.join(" — ");
+  $("recapLigne2").innerHTML = (filtres.length
+      ? '<span class="filtre">Filtres : ' + esc(filtres.join(" · ")) + "</span>"
+      : "Aucun filtre") + (l2.length ? " · " + esc(l2.join(" · ")) : "");
+
+  // Résumés des volets repliés.
+  const nFiltres = (prioConcernee && filtrePrioriteActif() ? 1 : 0) +
+                   (d.includes("d4") && filtreCategorieActif() ? 1 : 0);
+  $("voletPerimetreResume").textContent = nFiltres
+    ? nFiltres + (nFiltres > 1 ? " filtres actifs" : " filtre actif") : "";
+  $("voletHistoResume").textContent = (histo.length ? histo.length + " édition(s) archivée(s)" : "") +
+    (ecarts ? " · comparaison active" : "");
+}
+
+/* Nature des lignes du PDF P2A : toutes, PEPS avec leurs MEO, ou AV seules. */
+const LIBELLES_NATURE_P2A = { tous:"", peps:"PEPS et MEO", av:"AV" };
+function natureP2A(){
+  return ["peps", "av"].includes(cfg.natureP2A) ? cfg.natureP2A : "tous";
+}
+function natureP2ARetenue(nature, choix){
+  if(choix === "peps") return nature !== "AV";
+  if(choix === "av") return nature === "AV";
+  return true;
+}
+
+/* Coche ou décoche toute une liste ; un seul événement suffit, chaque liste
+   relit l'état de toutes ses cases. */
+function toutAucun(zoneId, valeur){
+  const cases = [...$(zoneId).querySelectorAll("input[type=checkbox]")];
+  if(!cases.length) return;
+  cases.forEach(c => c.checked = valeur);
+  cases[0].dispatchEvent(new Event("change"));
+}
+
 function sauve(){
   cfg.annee = parseInt($("annee").value, 10) || new Date().getFullYear();
   grist.widgetApi.setOptions(cfg).catch(() => {});
@@ -1022,6 +1298,7 @@ function bilanNature(nature, jan1, finAnnee, fraction){
     porteur: txt(l[cfg.colPorteur]),
     groupement: txt(l[cfg.colGroupement]),
     priorite: txt(l[cfg.colPriorite]) || "—",
+    sponsor: sponsorProjet(l),
     commentaire: txt(l[cfg.colCommentaire]),
     avancement: versPourcent(l[cfg.colAvancement], fraction)
   });
@@ -1109,6 +1386,7 @@ function bilanP2A(fraction){
       porteur: txt(l[cfg.colPorteur]),
       groupement,
       priorite: txt(l[cfg.colPriorite]),
+      sponsor: sponsorProjet(l),
       commentaire: txt(l[cfg.colCommentaire]),
       avancement: versPourcent(l[cfg.colAvancement], fraction),
       interrompu: [cfg.colSuspension, cfg.colAbandon].some(c => c && versDate(l[c])),
@@ -1124,6 +1402,21 @@ function bilanP2A(fraction){
   });
   lignes.sort((a, b) => a.nature.localeCompare(b.nature) || a.libelle.localeCompare(b.libelle));
   return { lignes, parMillesime, projets };
+}
+
+/* Échéance d'une ligne : l'échéance prévisionnelle, à défaut la date de fin. */
+function echeanceProjet(l){
+  return (cfg.colEchPrev ? versDate(l[cfg.colEchPrev]) : null) ||
+         (cfg.colFin ? versDate(l[cfg.colFin]) : null);
+}
+function echeanceMEC(l){
+  return cfg.mecEcheance ? versDate(l[cfg.mecEcheance]) : null;
+}
+/* En retard : échéance passée sur une ligne ni terminée ni interrompue. */
+function enRetard(echeance, statut){
+  if(!echeance || statut === "termine" || statut === "interrompu") return false;
+  const auj = new Date(); auj.setUTCHours(0, 0, 0, 0);
+  return echeance < auj;
 }
 
 /* Exécute fn comme si aucun filtre de priorité ou de catégorie n'était posé. */
@@ -1160,6 +1453,7 @@ function recalcule(){
   }));
   calculeEcarts();
   dessineApercu();
+  majRecap();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1224,11 +1518,8 @@ async function chargeHistorique(){
 function construitComparaison(){
   const a = $("revA"), b = $("revB");
   const type = cfg.typeRevue || "complete";
-  // Sur la revue par groupement, la référence doit porter sur le même périmètre.
-  const groupe = type === "groupement"
-    ? (cfg.groupementRevue === TOUS_GROUPEMENTS || !cfg.groupementRevue
-        ? "Tous les groupements" : cfg.groupementRevue)
-    : "";
+  // Les éditions archivées par groupement (ancien type) ne se comparent qu'entre elles.
+  const groupe = "";
   const filtre = $("memeType").checked
     ? histo.filter(r => (!r.type || r.type === type) &&
                         (!groupe || !r.groupement || r.groupement === groupe))
@@ -1317,11 +1608,7 @@ async function archiveEdition(){
   const libelle = $("libelleEdition").value.trim();
   if(!libelle){ alerte("Donnez un nom à l'édition avant de l'archiver."); return; }
   const t = typeCourant();
-  // Le groupement ne qualifie l'édition que pour la revue par groupement.
-  const groupe = t.id === "groupement"
-    ? (cfg.groupementRevue === TOUS_GROUPEMENTS || !cfg.groupementRevue
-        ? "Tous les groupements" : cfg.groupementRevue)
-    : "";
+  const groupe = "";   // la revue par groupement n'existe plus
   const perimetre = t.nom + (groupe ? " · " + groupe : "") +
                     " · P2A : " + ((cfg.p2aChoisis || []).join(", ") || "aucun") +
                     " · Diapos : " + (cfg.diapos || []).join(", ");
@@ -2886,9 +3173,9 @@ function enTetePdf(doc, ctx){
   doc.addImage(LOGO_B64, "PNG", MARGE_P, 8, 30, 19.2);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(13); doc.setTextColor(...ENCRE_P);
-  doc.text(ctx.titre, 48, 17);
+  doc.text(ligatures(ctx.titre), 48, 17);
   doc.setFontSize(8); doc.setTextColor(...ESTOMPE_P);
-  doc.text(ctx.sousTitre, 48, 23);
+  doc.text(doc.splitTextToSize(ligatures(ctx.sousTitre), droiteDe(doc) - 48)[0], 48, 23);
   doc.setFillColor(...ROUGE_P);
   doc.rect(MARGE_P, 28, droiteDe(doc) - MARGE_P, 1.1, "F");
   return 38;
@@ -2909,13 +3196,28 @@ function assurerPlace(doc, ctx, y, besoin){
   return (y + besoin > basDe(doc)) ? nouvelleFeuillePdf(doc, ctx) : y;
 }
 
+/* Pied de page : intitulé de la revue, date d'édition et filtres à gauche,
+   numéro de page à droite, sur toutes les pages. */
 function piedDePagePdf(doc, ctx){
   const total = doc.getNumberOfPages();
+  const droite = droiteDe(doc);
   for(let p = 1; p <= total; p++){
     doc.setPage(p);
-    doc.setFontSize(7.5); doc.setTextColor(...ESTOMPE_P);
-    doc.text("Page " + p + " / " + total, 105, 289, { align:"center" });
+    doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
+    doc.line(MARGE_P, 286.5, droite, 286.5);
+    doc.setFontSize(7); doc.setTextColor(...ESTOMPE_P);
+    const numero = "Page " + p + " / " + total;
+    doc.text(numero, droite, 290.5, { align:"right" });
+    if(ctx.pied){
+      const place = droite - MARGE_P - doc.getTextWidth(numero) - 6;
+      doc.text(tronqueA(doc, nettoiePdf(ctx.pied), place), MARGE_P, 290.5);
+    }
   }
+}
+
+function piedDe(type, filtres){
+  return "SDIS de l'Ain - " + type.nom + " - édition du " + jjmmaaaa(new Date()) +
+         (filtres ? " - " + filtres.replace(/^ — /, "").replace(/ — /g, " - ") : "");
 }
 
 function cadreValeur(doc, x, y, largeur, hauteur, etiquette, valeur, couleur, fond){
@@ -2933,7 +3235,7 @@ function legendePdf(doc, x, y, entrees, largeur){
     doc.setFillColor(...e.couleur);
     doc.rect(x, ligne - 2.6, 3, 3, "F");
     doc.setFontSize(7.5); doc.setTextColor(61, 61, 58);
-    doc.text(doc.splitTextToSize(e.libelle, largeur - 26)[0], x + 5, ligne);
+    doc.text(doc.splitTextToSize(ligatures(e.libelle), largeur - 26)[0], x + 5, ligne);
     doc.setTextColor(...GRIS_P);
     doc.text(e.valeur, x + largeur, ligne, { align:"right" });
     ligne += 6.5;
@@ -3079,7 +3381,7 @@ function blocFocusPdf(doc, ctx, y, jeu){
     doc.setFillColor(...cat.couleur);
     doc.rect(MARGE_P, ligne + hauteur / 2 - 1.5, 3, 3, "F");
     doc.setFontSize(corpsLibelle); doc.setTextColor(61, 61, 58);
-    doc.text(doc.splitTextToSize(cat.libelle, 60)[0], MARGE_P + 5, ligne + hauteur / 2 + 1.2);
+    doc.text(doc.splitTextToSize(ligatures(cat.libelle), 60)[0], MARGE_P + 5, ligne + hauteur / 2 + 1.2);
     for(const c of COLONNES_FOCUS){
       const s = statutParCle(c.cle);
       const n = (focus.croise[cat.cle] || {})[c.cle] || 0;
@@ -3126,7 +3428,7 @@ function pageEvolutionPdf(doc, ctx, jeu, depart){
     doc.setFillColor(...cat.couleur);
     doc.rect(MARGE_P, y - 2.6, 3, 3, "F");
     doc.setFontSize(7.5); doc.setTextColor(61, 61, 58);
-    doc.text(doc.splitTextToSize(cat.libelle, 90)[0], MARGE_P + 5, y);
+    doc.text(doc.splitTextToSize(ligatures(cat.libelle), 90)[0], MARGE_P + 5, y);
     doc.setTextColor(...ESTOMPE_P);
     doc.text(avant == null ? "—" : String(avant), 120, y, { align:"right" });
     doc.setTextColor(...ENCRE_P);
@@ -3146,8 +3448,8 @@ function pageEvolutionPdf(doc, ctx, jeu, depart){
 
 /* Poids relatifs des colonnes du détail. Porteur et groupement ont besoin
    d'assez de place pour un « NOM Prénom » sur une seule ligne. */
-const POIDS = { libelle:2.8, priorite:0.9, porteur:1.5, groupement:1.3, commentaire:2.6,
-                date:0.9, avancement:0.6 };
+const POIDS = { libelle:2.8, priorite:0.9, porteur:1.5, groupement:1.3, sponsor:1.4,
+                commentaire:2.6, echeance:1.15, date:0.9, avancement:0.6 };
 
 /* Colonnes du détail : le libellé et l'avancement sont toujours là,
    le reste suit les cases cochées. */
@@ -3158,7 +3460,13 @@ function champsDetail(type){
     champs.push({ cle:"priorite", titre:"Priorité" });
   if(cfg.detPorteur !== false)    champs.push({ cle:"porteur",    titre:"Porteur" });
   if(cfg.detGroupement !== false) champs.push({ cle:"groupement", titre:"Groupement" });
+  const sourceSponsor = type.id === "mec" ? "mec" : "projet";
+  if(cfg.detSponsor !== false && sponsorActif(sourceSponsor))
+    champs.push({ cle:"sponsor", titre:"Sponsor CODIR" });
   if(cfg.detCommentaire !== false) champs.push({ cle:"commentaire", titre:"Commentaire" });
+  const avecEcheance = type.id === "mec" ? !!cfg.mecEcheance
+    : !!(cfg.colEchPrev || cfg.colFin);
+  if(cfg.detEcheance !== false && avecEcheance) champs.push({ cle:"echeance", titre:"Échéance" });
   champs.push({ cle:"avancement", titre:"Avct" });
   return champs;
 }
@@ -3169,8 +3477,16 @@ function champsDetail(type){
    apostrophes et guillemets typographiques, tirets longs, points de suspension,
    espaces insécables. Les caractères hors jeu latin-1 sont retirés, faute de quoi
    le rendu s'étire ou déborde. */
-function nettoiePdf(valeur){
+/* La police standard du PDF ne connaît pas œ ni € : on les écrit en toutes lettres
+   plutôt que de les perdre (« mise en œuvre » devenait « mise en uvre »). */
+function ligatures(valeur){
   return String(valeur == null ? "" : valeur)
+    .replace(/œ/g, "oe").replace(/Œ/g, "OE").replace(/æ/g, "ae").replace(/Æ/g, "AE")
+    .replace(/€/g, "EUR");
+}
+
+function nettoiePdf(valeur){
+  return ligatures(valeur)
     .replace(/\r\n?/g, "\n")
     .replace(/[\u2018\u2019\u201B]/g, "'")
     .replace(/[\u201C\u201D\u00AB\u00BB]/g, '"')
@@ -3252,15 +3568,23 @@ function pageDetailPdf(doc, ctx, jeu){
     if(prefixe !== cat.cle && !ancres.has(prefixe)) ancres.set(prefixe, repere);
 
     // En-tête de groupe : nom de la catégorie et intitulés de colonnes sur la même ligne.
-    doc.setFillColor(...cat.couleur);
-    doc.rect(MARGE_P, y - 3.2, 3, 3.6, "F");
-    doc.setFontSize(9); doc.setTextColor(...ENCRE_P);
-    doc.text(cat.libelle + "  (" + membres.length + ")", MARGE_P + 5, y);
-    doc.setFontSize(7); doc.setTextColor(...GRIS_P);
-    colonnes.slice(1).forEach(c => doc.text(c.titre, c.x, y));
-    doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
-    doc.line(MARGE_P, y + 2, droite, y + 2);
-    y += 7;
+    // Il est répété, suivi de « (suite) », en haut de chaque nouvelle page du groupe.
+    const enteteGroupe = (yy, suite) => {
+      doc.setFillColor(...cat.couleur);
+      doc.rect(MARGE_P, yy - 3.2, 3, 3.6, "F");
+      doc.setFontSize(9); doc.setTextColor(...ENCRE_P);
+      const intitule = ligatures(cat.libelle) + (suite ? " (suite)" : "  (" + membres.length + ")");
+      doc.text(intitule, MARGE_P + 5, yy);
+      // Intitulé trop long pour la première colonne : les titres passent à la ligne.
+      const aLaLigne = doc.getTextWidth(intitule) > colonnes[1].x - MARGE_P - 7;
+      if(aLaLigne) yy += 5;
+      doc.setFontSize(7); doc.setTextColor(...GRIS_P);
+      colonnes.slice(1).forEach(c => doc.text(tronqueA(doc, nettoiePdf(c.titre), c.l + 1), c.x, yy));
+      doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
+      doc.line(MARGE_P, yy + 2, droite, yy + 2);
+      return yy + 7;
+    };
+    y = enteteGroupe(y, false);
 
     for(const rang of STATUTS_P){
       const sous = membres.filter(l => l.statut === rang.cle);
@@ -3273,16 +3597,17 @@ function pageDetailPdf(doc, ctx, jeu){
       for(const r of sous){
         doc.setFontSize(7.5);
         const cellules = colonnes.map(c => c.cle === "avancement" ? [""]
+          : c.cle === "echeance" ? [r.echeance ? jjmmaaaa(r.echeance) : "—"]
           : lignesCellule(doc, r[c.cle], c.l, c.cle === "commentaire" ? 8 : 3));
-        const hauteur = Math.max(6, Math.max(...cellules.map(t => t.length)) * 3.4 + 2.2);
-        if(y + hauteur > bas) y = nouvelleFeuillePdf(doc, ctx);
+        const hauteur = Math.max(6, Math.max(...cellules.map(t => t.length)) * 3.4 + 3);
+        if(y + hauteur > bas) y = enteteGroupe(nouvelleFeuillePdf(doc, ctx), true);
         ancres.set("ligne:" + r.id,
                    { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 6) });
         colonnes.forEach((c, i) => {
           if(c.cle === "avancement"){
             bulleAvancement(doc, c.x, y + 0.4, r.avancement, r.statut, c.l);
           }else{
-            doc.setTextColor(61, 61, 58);
+            doc.setTextColor(...(c.cle === "echeance" && r.enRetard ? [192, 40, 40] : [61, 61, 58]));
             // Une ligne à la fois : le tracé d'un tableau laisse jsPDF gérer
             // l'interligne et peut étirer le texte.
             cellules[i].forEach((t, k) => doc.text(t, c.x, y + 4 + k * 3.4));
@@ -3313,8 +3638,9 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
   y += 9;
 
   const champ = jeu.sommaireCle || "categorie";
-  const categories = [...(jeu.categoriesSommaire || jeu.categories)]
-    .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
+  const categories = jeu.ordreImpose ? [...(jeu.categoriesSommaire || jeu.categories)]
+    : [...(jeu.categoriesSommaire || jeu.categories)]
+      .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
   for(const cat of categories){
     const membres = jeu.lignes.filter(l => l[champ] === cat.cle)
       .sort((a, b) => String(a.libelle).localeCompare(String(b.libelle), "fr"));
@@ -3324,7 +3650,7 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
     doc.setFillColor(...cat.couleur);
     doc.rect(MARGE_P, y - 2.8, 3, 3.2, "F");
     doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
-    doc.text(cat.libelle + "  (" + membres.length + ")", MARGE_P + 5, y);
+    doc.text(ligatures(cat.libelle) + "  (" + membres.length + ")", MARGE_P + 5, y);
     const cibleCat = ancres.get(cat.cle);
     if(cibleCat) doc.link(MARGE_P, y - 4, droite - MARGE_P, 5.4,
                           { pageNumber:cibleCat.page, top:cibleCat.top });
@@ -3414,13 +3740,16 @@ function jeuProjets(c, natures){
       const av = versPourcent(l[cfg.colAvancement], frac);
       const prio = txt(l[cfg.colPriorite]) || "Sans priorité";
       const nat = txt(l[cfg.colNature]).toUpperCase() || n;
+      const statut = statutDeLigne(av, inter), ech = echeanceProjet(l);
       lignes.push({
         libelle: txt(l[cfg.colLibelle]),
         porteur: txt(l[cfg.colPorteur]),
         groupement: txt(l[cfg.colGroupement]),
+        sponsor: sponsorProjet(l),
         commentaire: txt(l[cfg.colCommentaire]),
+        echeance: ech, enRetard: enRetard(ech, statut),
         avancement: av,
-        statut: statutDeLigne(av, inter),
+        statut,
         priorite: prio,
         nature: nat,
         categorie: natures.length > 1 ? prio + " · " + nat : prio
@@ -3473,37 +3802,48 @@ function jeuMEC(c){
     const v = txt(l[cfg.mecType]) || "(non renseigné)";
     if((cfg.familles && cfg.familles[v]) === "hors") return;
     const av = versPourcent(l[cfg.mecAvancement], frac);
+    const statut = statutDeLigne(av, estInterrompu(l)), ech = echeanceMEC(l);
     lignes.push({
       libelle: txt(l[cfg.mecLibelle]),
       porteur: txt(l[cfg.mecPorteur]),
       groupement: txt(l[cfg.mecGroupement]),
+      sponsor: sponsorMEC(l),
       commentaire: txt(l[cfg.mecCommentaire]),
+      echeance: ech, enRetard: enRetard(ech, statut),
       avancement: av,
-      statut: statutDeLigne(av, estInterrompu(l)),
+      statut,
       categorie: v
     });
   });
-  const valeurs = [...new Set(lignes.map(l => l.categorie))].sort();
-  return agrege({
+  // Ordre de gravité : majeures et principaux d'abord, comme sur la revue par groupement.
+  const valeurs = [...new Set(lignes.map(l => l.categorie))]
+    .sort((a, b) => rangCategorieMEC(a) - rangCategorieMEC(b) || a.localeCompare(b, "fr"));
+  const jeu = agrege({
     axe: "catégorie",
     categories: categoriesDepuis(valeurs),
     lignes,
     titreDetail: "Détail des recommandations et rappels au droit",
     champs: champsDetail({ id:"mec" })
   });
+  jeu.ordreImpose = true;
+  return jeu;
 }
 
 /* P2A : le focus croise groupement et nature, le camembert porte sur la nature,
    et le bloc du haut rappelle les effectifs par millésime. Une ligne portant
    plusieurs millésimes n'apparaît qu'une fois dans le détail. */
-function jeuP2A(c){
+function jeuP2A(c, nature){
   const rangNature = n => (n === "PEPS" ? 0 : (n === "AV" ? 1 : 2));
-  const lignes = c.p2a.lignes.map(l => ({
+  const choix = nature || "tous";
+  const lignes = c.p2a.lignes.filter(l => natureP2ARetenue(l.nature, choix)).map(l => ({
     libelle: l.libelle,
     porteur: l.porteur,
     groupement: l.groupement,
     priorite: l.priorite,
+    sponsor: l.sponsor,
     commentaire: l.commentaire,
+    echeance: l.echeance,
+    enRetard: enRetard(l.echeance, statutDeLigne(l.avancement, l.interrompu)),
     avancement: l.avancement,
     statut: statutDeLigne(l.avancement, l.interrompu),
     nature: l.nature,
@@ -3588,22 +3928,24 @@ async function generePDF(type){
   }
   const c = calcul;
   let jeu, cleBilan;
+  const nature = type.id === "p2a" ? natureP2A() : "tous";
   if(type.id === "mec"){ jeu = jeuMEC(c); cleBilan = "mec"; }
-  else if(type.id === "p2a"){ jeu = jeuP2A(c); cleBilan = "p2a"; }
-  else if(type.id === "projets"){ jeu = jeuProjets(c, ["PEPS", "AV"]); cleBilan = "peps"; }
-  else if(type.id === "groupement"){ return generePDFGroupement(type); }
-  else if(type.id === "peps"){ jeu = jeuProjets(c, ["PEPS"]); cleBilan = "peps"; }
-  else{ jeu = jeuProjets(c, ["AV"]); cleBilan = "av"; }
-  jeu.evolution = evolutionDe(jeu, cleBilan);
+  else if(type.id === "p2a"){ jeu = jeuP2A(c, nature); cleBilan = "p2a"; }
+  else{ alerte("Type de revue inconnu."); return; }
+  // L'édition archivée porte sur toutes les natures : pas d'évolution sur un sous-ensemble.
+  jeu.evolution = nature === "tous" ? evolutionDe(jeu, cleBilan) : null;
+  const mentionNature = nature !== "tous" ? " — Nature : " + LIBELLES_NATURE_P2A[nature] : "";
 
   const n = jeu.total;
   const unite = type.id === "mec"
     ? (n > 1 ? "préconisations" : "préconisation")
     : (n > 1 ? "projets et actions" : "projet ou action");
+  const filtres = mentionNature +
+                  mentionFiltres({ prio: type.id !== "mec", cat: type.id === "mec" });
   const ctx = {
-    titre: type.nom,
-    sousTitre: "Édition du " + jjmmaaaa(new Date()) + " — " + n + " " + unite +
-               mentionFiltres({ prio: type.id !== "mec", cat: type.id === "mec" }),
+    titre: type.nom + (nature !== "tous" ? " — " + LIBELLES_NATURE_P2A[nature] : ""),
+    sousTitre: "Édition du " + jjmmaaaa(new Date()) + " — " + n + " " + unite + filtres,
+    pied: piedDe(type, filtres),
     pages: ["portrait"]
   };
   const doc = new window.jspdf.jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
@@ -3627,32 +3969,15 @@ async function generePDF(type){
 
   poserLiens(doc, synthese.zones, ancres);
   piedDePagePdf(doc, ctx);
-  doc.save(type.fichier + "_" + c.annee + ".pdf");
+  doc.save(type.fichier + (nature !== "tous" ? "_" + nature.toUpperCase() : "") +
+           "_" + c.annee + ".pdf");
   alerte("PDF créé : " + doc.getNumberOfPages() + " page(s).", true);
 }
 
 
 
-/* ================================================================== */
-/* Revue par groupement — PDF croisant projets/actions et MEC 2023     */
-/* ================================================================== */
-
+/* Valeur historique conservée pour relire les éditions archivées par groupement. */
 const TOUS_GROUPEMENTS = "*";
-let ctxCourant = null;   // contexte du chapitre en cours
-
-/* Valeurs de groupement présentes dans l'une ou l'autre table. */
-function listeGroupements(){
-  const vues = new Set();
-  if(cfg.colGroupement) recPEPS.forEach(l => {
-    const v = txt(l[cfg.colGroupement]);
-    if(v) vues.add(v);
-  });
-  if(cfg.mecGroupement) recMEC.forEach(l => {
-    const v = txt(l[cfg.mecGroupement]);
-    if(v) vues.add(v);
-  });
-  return [...vues].sort((a, b) => a.localeCompare(b, "fr"));
-}
 
 /* Rang imposé des catégories MEC : majeure, principal, puis les autres. */
 function rangCategorieMEC(valeur){
@@ -3661,304 +3986,12 @@ function rangCategorieMEC(valeur){
          (famille === "rappel" ? 1 : 0);
 }
 
-function jeuGroupement(c, groupement){
-  const tout = groupement === TOUS_GROUPEMENTS;
-  const garde = g => tout || g === groupement;
-
-  // --- projets et actions ---
-  const fracP = detecteFraction(recPEPS, cfg.colAvancement);
-  const lignesProjets = [];
-  [["PEPS", c.peps], ["AV", c.av]].forEach(([defaut, bilan]) => {
-    bilan.stockLignes.forEach(l => {
-      const g = txt(l[cfg.colGroupement]) || "Non renseigné";
-      if(!garde(g)) return;
-      const inter = [cfg.colSuspension, cfg.colAbandon].some(k => k && versDate(l[k]));
-      const av = versPourcent(l[cfg.colAvancement], fracP);
-      const prio = txt(l[cfg.colPriorite]) || "Sans priorité";
-      const nat = txt(l[cfg.colNature]).toUpperCase() || defaut;
-      lignesProjets.push({
-        libelle: txt(l[cfg.colLibelle]), porteur: txt(l[cfg.colPorteur]),
-        groupement: g, commentaire: txt(l[cfg.colCommentaire]),
-        avancement: av, statut: statutDeLigne(av, inter),
-        priorite: prio, nature: nat, source: "projet",
-        categorie: prio + " · " + nat
-      });
-    });
-  });
-
-  // --- préconisations ---
-  const fracM = detecteFraction(recMEC, cfg.mecAvancement);
-  const lignesMEC = [];
-  recMEC.forEach(l => {
-    if(!categorieRetenue(l)) return;
-    const v = txt(l[cfg.mecType]) || "(non renseigné)";
-    if((cfg.familles && cfg.familles[v]) === "hors") return;
-    const g = txt(l[cfg.mecGroupement]) || "Non renseigné";
-    if(!garde(g)) return;
-    const av = versPourcent(l[cfg.mecAvancement], fracM);
-    lignesMEC.push({
-      libelle: txt(l[cfg.mecLibelle]), porteur: txt(l[cfg.mecPorteur]),
-      groupement: g, commentaire: txt(l[cfg.mecCommentaire]),
-      avancement: av, statut: statutDeLigne(av, estInterrompu(l)),
-      nature: "Préconisation", source: "preconisation", categorie: v
-    });
-  });
-
-  // --- catégories : projets d'abord, puis préconisations ---
-  const priorites = [...new Set(lignesProjets.map(l => l.priorite))]
-    .sort((a, b) => a.localeCompare(b, "fr"));
-  const teinte = {};
-  priorites.forEach((p, i) => teinte[p] = couleurPriorite(p, CAT_COULEURS[i % CAT_COULEURS.length]));
-  const rangNature = n => (n === "PEPS" ? 0 : (n === "AV" ? 1 : 2));
-
-  const catProjets = [...new Set(lignesProjets.map(l => l.categorie))]
-    .sort((a, b) => {
-      const [pa, na] = a.split(" · "), [pb, nb] = b.split(" · ");
-      return pa.localeCompare(pb, "fr") || rangNature(na) - rangNature(nb);
-    })
-    .map(v => ({ cle:v, libelle:v, couleur:teinte[v.split(" · ")[0]] || CAT_COULEURS[0] }));
-
-  const catMEC = [...new Set(lignesMEC.map(l => l.categorie))]
-    .sort((a, b) => rangCategorieMEC(a) - rangCategorieMEC(b) || a.localeCompare(b, "fr"))
-    .map((v, i) => ({ cle:v, libelle:v, couleur:CAT_COULEURS[(i + 2) % CAT_COULEURS.length] }));
-
-  // Jeu principal : sert au sommaire et au détail, les deux sources réunies.
-  const jeu = agrege({
-    axe: "catégorie",
-    categories: catProjets.concat(catMEC),
-    lignes: lignesProjets.concat(lignesMEC),
-    titreDetail: "Détail — projets, actions et préconisations",
-    champs: (() => {
-      const ch = champsDetail({ id:"groupement" });
-      ch[0].titre = "Libellé";
-      return ch;
-    })()
-  });
-  jeu.groupement = groupement;
-
-  // Sous-jeux : un bloc focus et un avancement par source.
-  jeu.sousJeux = {
-    projets: agrege({ axe:"priorité et nature",
-      libelleFocus:"priorité, nature et statut",
-      categories:catProjets, lignes:lignesProjets, champs:jeu.champs,
-      titreDetail:"" }),
-    mec: agrege({ axe:"catégorie", libelleFocus:"catégorie et statut",
-      categories:catMEC, lignes:lignesMEC, champs:jeu.champs, titreDetail:"" })
-  };
-
-  jeu.natures = [
-    { libelle:"PEPS", couleur:CAT_COULEURS[2],
-      valeur:lignesProjets.filter(l => l.nature === "PEPS").length },
-    { libelle:"AV", couleur:CAT_COULEURS[3],
-      valeur:lignesProjets.filter(l => l.nature === "AV").length },
-    { libelle:"Préconisations", couleur:CAT_COULEURS[0], valeur:lignesMEC.length }
-  ];
-  return jeu;
-}
-
-/* ---------- Synthèse d'un groupement ---------- */
-
-function pageSyntheseGroupementPdf(doc, ctx, jeu, y){
-  const droite = droiteDe(doc);
-  const zones = [];
-
-  doc.setFontSize(8); doc.setTextColor(...GRIS_P);
-  doc.text("Avancement global", MARGE_P, y);
-
-  const paires = [
-    { jeu:jeu.sousJeux.projets, libelle:"projets et actions" },
-    { jeu:jeu.sousJeux.mec,     libelle:"préconisations" }
-  ];
-  paires.forEach((p, i) => {
-    const teinte = statutParCle(statutDeLigne(p.jeu.global * 100, false));
-    cadreValeur(doc, MARGE_P + i * 50, y + 2, 46, 18,
-                p.libelle + " (" + p.jeu.total + ")",
-                p.jeu.total ? pourcentPdf(p.jeu.global) : "—",
-                teinte.encre, teinte.fond);
-  });
-
-  if(jeu.natures && jeu.natures.length){
-    doc.setFontSize(8); doc.setTextColor(...GRIS_P);
-    doc.text(jeu.titreNatures || "Répartition par nature", 118, y);
-    legendePdf(doc, 118, y + 8, jeu.natures.map(n =>
-      ({ libelle:n.libelle, couleur:n.couleur, valeur:String(n.valeur) })), 80);
-  }
-
-  let x = MARGE_P;
-  for(const s of STATUTS_P){
-    cadreValeur(doc, x, y + 28, 44, 18, s.libelle, String(jeu.parStatut[s.cle] || 0),
-                s.cle === "en cours" ? [154,122,0] : s.couleur);
-    x += 46.5;
-  }
-
-  doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
-  doc.line(MARGE_P, y + 54, droite, y + 54);
-
-  const haut = y + 64, milieu = 105;
-  doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
-  doc.text("Répartition par statut", MARGE_P, haut);
-  doc.text("Répartition par nature", milieu + 6, haut);
-
-  if(jeu.total){
-    doc.addImage(donut(STATUTS_P.map(s =>
-      ({ valeur:jeu.parStatut[s.cle] || 0, couleur:s.couleur })), jeu.total),
-      "PNG", 41.5, haut + 4, 28, 28);
-    const totalNat = jeu.natures.reduce((a, b) => a + b.valeur, 0) || jeu.total;
-    doc.addImage(donut(jeu.natures.map(n => ({ valeur:n.valeur, couleur:n.couleur })), totalNat),
-                 "PNG", 140.5, haut + 4, 28, 28);
-  }
-  legendePdf(doc, MARGE_P, haut + 42, STATUTS_P.map(s => ({
-    libelle:s.libelle, couleur:s.couleur, valeur:String(jeu.parStatut[s.cle] || 0)
-  })), 87);
-  doc.setDrawColor(...TRAIT_P);
-  doc.line(milieu, haut - 6, milieu, haut + 68);
-  legendePdf(doc, milieu + 6, haut + 42, jeu.natures.map(n => ({
-    libelle:n.libelle, couleur:n.couleur, valeur:String(n.valeur)
-  })), 87);
-  doc.line(MARGE_P, haut + 74, droite, haut + 74);
-
-  // Deux blocs focus successifs : les deux sources n'ont pas le même axe.
-  let suite = haut + 84;
-  for(const p of paires){
-    if(!p.jeu.total) continue;
-    suite = assurerPlace(doc, ctx, suite, 40);
-    const bloc = blocFocusPdf(doc, ctx, suite, p.jeu);
-    zones.push(...bloc.zones);
-    suite = bloc.y + 6;
-  }
-  return { y:suite, zones };
-}
-
-/* ---------- Terminés et interrompus de l'année ---------- */
-
-function tableauAnnuelPdf(doc, ctx, y, titre, colonnes, lignes){
-  if(!lignes.length) return y;
-  y = assurerPlace(doc, ctx, y + 6, 30);
-  const droite = droiteDe(doc);
-  doc.setFontSize(8.5); doc.setTextColor(...ENCRE_P);
-  doc.text(titre + "  (" + lignes.length + ")", MARGE_P, y);
-  y += 6;
-
-  const somme = colonnes.reduce((a, c) => a + c.poids, 0);
-  let curseur = MARGE_P;
-  const cols = colonnes.map(c => {
-    const l = (droite - MARGE_P) * c.poids / somme;
-    const col = { titre:c.titre, cle:c.cle, x:curseur, l:l - 2 };
-    curseur += l;
-    return col;
-  });
-
-  doc.setFontSize(7); doc.setTextColor(...GRIS_P);
-  cols.forEach(c => doc.text(c.titre, c.x, y));
-  doc.setDrawColor(...TRAIT_P); doc.setLineWidth(0.2);
-  doc.line(MARGE_P, y + 2, droite, y + 2);
-  y += 7;
-
-  for(const r of lignes){
-    doc.setFontSize(7.5);
-    const cellules = cols.map(c => lignesCellule(doc, r[c.cle], c.l, 3));
-    const hauteur = Math.max(6, Math.max(...cellules.map(t => t.length)) * 3.4 + 2.2);
-    if(y + hauteur > basDe(doc)) y = nouvelleFeuillePdf(doc, ctx);
-    cols.forEach((c, i) => {
-      doc.setTextColor(61, 61, 58);
-      cellules[i].forEach((t, k) => doc.text(t, c.x, y + 4 + k * 3.4));
-    });
-    doc.setDrawColor(237, 235, 228); doc.setLineWidth(0.15);
-    doc.line(MARGE_P, y + hauteur - 1.4, droite, y + hauteur - 1.4);
-    y += hauteur;
-  }
-  return y;
-}
-
-function pageAnnuelleGroupementPdf(doc, ctx, c, groupement, y){
-  const tout = groupement === TOUS_GROUPEMENTS;
-  const garde = l => tout || l.groupement === groupement;
-  const termines = c.peps.termines.concat(c.av.termines).filter(garde);
-  const interrompus = c.peps.interrompus.concat(c.av.interrompus).filter(garde);
-
-  y = tableauAnnuelPdf(doc, ctx, y, "Terminés dans l'année", [
-    { cle:"libelle", titre:"Projet ou action", poids:3.2 },
-    { cle:"priorite", titre:"Priorité", poids:0.7 },
-    { cle:"porteur", titre:"Porteur", poids:1.2 },
-    { cle:"groupement", titre:"Groupement", poids:1.0 },
-    { cle:"date", titre:"Fin", poids:0.8 }
-  ], termines);
-
-  y = tableauAnnuelPdf(doc, ctx, y, "Interrompus dans l'année", [
-    { cle:"libelle", titre:"Projet ou action", poids:2.6 },
-    { cle:"priorite", titre:"Priorité", poids:0.6 },
-    { cle:"porteur", titre:"Porteur", poids:1.0 },
-    { cle:"motif", titre:"Motif", poids:2.4 },
-    { cle:"date", titre:"Date", poids:0.8 }
-  ], interrompus);
-  return y;
-}
-
-/* ---------- Assemblage ---------- */
-
-/* Un chapitre complet : synthèse, sommaire, détail. Le sommaire est tracé en fin
-   de chapitre puis ramené juste avant le détail, comme sur les autres revues. */
-function chapitreGroupementPdf(doc, ctx, c, jeu, avecAnnee, yDepart){
-  jeu.lignes.forEach((l, i) => l.id = (jeu.groupement || "g") + "-" + i);
-
-  const synthese = pageSyntheseGroupementPdf(doc, ctx, jeu, yDepart);
-  let y = synthese.y;
-  if(avecAnnee) y = pageAnnuelleGroupementPdf(doc, ctx, c, jeu.groupement, y);
-
-  const avantDetail = doc.internal.getNumberOfPages();
-  let ancres = pageDetailPdf(doc, ctx, jeu);
-
-  const avantSommaire = doc.internal.getNumberOfPages();
-  const nb = dessinerSommaire(doc, ctx, jeu, ancres);
-  for(let i = 0; i < nb; i++) doc.deletePage(doc.internal.getNumberOfPages());
-  ancres = decalerAncres(ancres, nb, avantDetail);
-  dessinerSommaire(doc, ctx, jeu, ancres);
-  for(let k = 0; k < nb; k++) doc.movePage(avantSommaire + 1 + k, avantDetail + 1 + k);
-
-  poserLiens(doc, synthese.zones, ancres);
-}
-
-async function generePDFGroupement(type){
-  const c = calcul;
-  const choix = cfg.groupementRevue || TOUS_GROUPEMENTS;
-  const avecAnnee = cfg.inclureAnnee !== false;
-  const groupes = choix === TOUS_GROUPEMENTS ? listeGroupements() : [choix];
-  if(!groupes.length){ alerte("Aucun groupement trouvé dans les tables."); return; }
-
-  const doc = new window.jspdf.jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
-  let premier = true;
-
-  for(const g of groupes){
-    const jeu = jeuGroupement(c, g);
-    const n = jeu.total;
-    ctxCourant = {
-      titre: "Revue " + g,
-      sousTitre: "Édition du " + jjmmaaaa(new Date()) + " — " + n +
-                 (n > 1 ? " lignes suivies" : " ligne suivie") +
-                 mentionFiltres({ prio:true, cat:true }),
-      pages: ["portrait"]
-    };
-    if(premier){
-      ctxCourant.pageRetour = 1;
-      var y = enTetePdf(doc, ctxCourant);
-    }else{
-      ctxCourant.pageRetour = doc.internal.getNumberOfPages() + 1;
-      var y = nouvelleFeuillePdf(doc, ctxCourant);
-    }
-    premier = false;
-    chapitreGroupementPdf(doc, ctxCourant, c, jeu, avecAnnee, y);
-  }
-
-  piedDePagePdf(doc, ctxCourant);
-  const suffixe = choix === TOUS_GROUPEMENTS
-    ? "tous" : choix.replace(/[^\w-]+/g, "_").slice(0, 30);
-  doc.save(type.fichier + "_" + suffixe + "_" + c.annee + ".pdf");
-  alerte("PDF créé : " + doc.getNumberOfPages() + " page(s).", true);
-}
-
 /* ------------------------------------------------------------------ */
 /* Démarrage                                                           */
 /* ------------------------------------------------------------------ */
+
+const DET_COLONNES = ["detPriorite", "detPorteur", "detGroupement", "detSponsor",
+                      "detCommentaire", "detEcheance"];
 
 /* Grist affiche « Ouvrir la configuration » dans le panneau latéral droit
    dès qu'un rappel onEditOptions est fourni. */
@@ -3980,6 +4013,16 @@ $("ongletConf").addEventListener("click", () => onglet("conf"));
 $("btnFermerConfig").addEventListener("click", () => { $("blocConfig").hidden = true; });
 $("ongletGen").addEventListener("click", () => { onglet("gen"); recalcule(); });
 $("btnGen").addEventListener("click", () => genere().catch(e => alerte("Échec : " + e.message)));
+$("btnGenRecap").addEventListener("click", () => genere().catch(e => alerte("Échec : " + e.message)));
+document.querySelectorAll(".toutaucun button").forEach(b =>
+  b.addEventListener("click", () => toutAucun(b.dataset.zone, b.dataset.val === "1")));
+$("tSD").addEventListener("change", () => {
+  cfg.sdCle = ""; cfg.sdSponsor = "";
+  chargeSponsors().then(() => { sauve(); recalcule(); }).catch(e => alerte("Échec : " + e.message));
+});
+["sdCle", "sdSponsor"].forEach(id => $(id).addEventListener("change", () => {
+  cfg[id] = $(id).value; sauve(); indexeSponsors(); recalcule();
+}));
 $("btnRecharge").addEventListener("click", () =>
   chargeDonnees().then(recalcule).catch(e => alerte("Échec : " + e.message)));
 $("annee").addEventListener("change", () => { sauve(); recalcule(); });
@@ -3988,7 +4031,7 @@ $("btnArchive").addEventListener("click", () =>
 $("tHisto").addEventListener("change", () =>
   chargeHistorique().then(recalcule).catch(e => alerte("Échec : " + e.message)));
 $("memeType").addEventListener("change", () => { construitComparaison(); recalcule(); });
-["detPriorite", "detPorteur", "detGroupement", "detCommentaire"].forEach(id =>
+DET_COLONNES.forEach(id =>
   $(id).addEventListener("change", () => { cfg[id] = $(id).checked; sauve(); }));
 $("rechercheExergue").addEventListener("input", () => construitExergue());
 $("planningP2A").addEventListener("change", () => {
@@ -3998,35 +4041,32 @@ $("btnReinit").addEventListener("click", () => {
   // Remise à zéro des filtres d'édition, sans toucher au mappage des colonnes.
   cfg.p2aChoisis = [];
   cfg.exergue = [];
-  cfg.groupementRevue = TOUS_GROUPEMENTS;
+  cfg.natureP2A = "tous";
   cfg.revA = "actuel"; cfg.revB = "";
-  cfg.detPriorite = cfg.detPorteur = cfg.detGroupement = cfg.detCommentaire = true;
+  DET_COLONNES.forEach(id => cfg[id] = true);
   cfg.prioritesExclues = [];
   cfg.categoriesExclues = [];
-  cfg.planningP2A = true; cfg.inclureAnnee = true; cfg.intercalaires = false;
+  cfg.planningP2A = true; cfg.intercalaires = false;
   cfg.typeRevue = "complete";
   $("rechercheExergue").value = "";
-  ["detPriorite", "detPorteur", "detGroupement", "detCommentaire", "planningP2A", "inclureAnnee"]
-    .forEach(id => $(id).checked = true);
-  $("intercalaires").checked = false;
+  DET_COLONNES.concat(["planningP2A"]).forEach(id => $(id).checked = true);
+  majNatureP2A();
   remplitTypes();
   appliqueType();
-  construitP2A(); construitPriorites(); construitCategories(); construitExergue(); construitGroupements(); construitComparaison();
+  construitP2A(); construitPriorites(); construitCategories(); construitExergue(); construitComparaison();
   sauve(); recalcule();
   alerte("Filtres réinitialisés.", true);
 });
-$("groupementRevue").addEventListener("change", () => {
-  cfg.groupementRevue = $("groupementRevue").value;
-  sauve(); construitComparaison(); recalcule();
-});
-$("inclureAnnee").addEventListener("change", () => {
-  cfg.inclureAnnee = $("inclureAnnee").checked; sauve();
-});
+document.querySelectorAll('input[name="natureP2A"]').forEach(r =>
+  r.addEventListener("change", () => {
+    if(r.checked){ cfg.natureP2A = r.value; sauve(); majRecap(); }
+  }));
+function majNatureP2A(){
+  const v = natureP2A();
+  document.querySelectorAll('input[name="natureP2A"]').forEach(r => r.checked = r.value === v);
+}
 $("triListeMEC").addEventListener("change", () => {
   cfg.triListeMEC = $("triListeMEC").value; sauve();
-});
-$("intercalaires").addEventListener("change", () => {
-  cfg.intercalaires = $("intercalaires").checked; sauve();
 });
 ["revA", "revB"].forEach(id => $(id).addEventListener("change", () => {
   cfg.revA = $("revA").value; cfg.revB = $("revB").value;
@@ -4040,15 +4080,15 @@ async function demarre(){
     await grist.ready({ requiredAccess:"full", onEditOptions: ouvrirConfiguration });
     cfg = (await grist.widgetApi.getOptions()) || {};
     $("annee").value = cfg.annee || new Date().getFullYear();
-    if(cfg.intercalaires === undefined) cfg.intercalaires = false;
-    $("intercalaires").checked = cfg.intercalaires;
+    cfg.intercalaires = false;   // option retirée de l'interface
     $("triListeMEC").value = cfg.triListeMEC === "groupement" ? "groupement" : "categorie";
-    ["detPriorite", "detPorteur", "detGroupement", "detCommentaire"].forEach(id => {
+    DET_COLONNES.forEach(id => {
       if(cfg[id] === undefined) cfg[id] = true;
       $(id).checked = cfg[id];
     });
-    if(cfg.inclureAnnee === undefined) cfg.inclureAnnee = true;
-    $("inclureAnnee").checked = cfg.inclureAnnee;
+    // Types retirés (PEPS, AV, projets, groupement) : retour à la revue complète.
+    if(cfg.typeRevue && !TYPES.some(t => t.id === cfg.typeRevue)) cfg.typeRevue = "complete";
+    majNatureP2A();
     if(cfg.planningP2A === undefined) cfg.planningP2A = true;
     $("planningP2A").checked = cfg.planningP2A;
     construitDiapos();
