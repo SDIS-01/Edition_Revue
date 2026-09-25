@@ -1645,9 +1645,12 @@ async function archiveEdition(){
     $("libelleEdition").value = "";
     await chargeHistorique();
     recalcule();
-    alerte("Édition « " + libelle + " » archivée. Pour conserver l'état de chaque projet à cette date, " +
-           "ouvrez dès que possible la console projets : la photo des projets en cours s'y enregistrera " +
-           "automatiquement, datée du jour de cette ouverture.", true);
+    /* seules la revue complète et la revue P2A déclenchent la photo dans la console projets */
+    if(t.id === "complete" || t.id === "p2a")
+      alerte("Édition « " + libelle + " » archivée. Pour conserver l'état de chaque projet à cette date, " +
+             "ouvrez dès que possible la console projets : la photo des projets en cours s'y enregistrera " +
+             "automatiquement, datée du jour de cette ouverture.", true);
+    else alerte("Édition archivée : " + libelle, true);
   }catch(e){
     alerte("Archivage impossible : " + e.message +
            " — vérifiez que la table contient les colonnes Date_Edition, Libelle, Annee, " +
