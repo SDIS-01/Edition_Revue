@@ -1645,7 +1645,9 @@ async function archiveEdition(){
     $("libelleEdition").value = "";
     await chargeHistorique();
     recalcule();
-    alerte("Édition archivée : " + libelle, true);
+    alerte("Édition « " + libelle + " » archivée. Pour conserver l'état de chaque projet à cette date, " +
+           "ouvrez dès que possible la console projets : la photo des projets en cours s'y enregistrera " +
+           "automatiquement, datée du jour de cette ouverture.", true);
   }catch(e){
     alerte("Archivage impossible : " + e.message +
            " — vérifiez que la table contient les colonnes Date_Edition, Libelle, Annee, " +
