@@ -1676,6 +1676,20 @@ function dessineApercu(){
     ' <span style="color:' + couleurEcart(d, sens) + ';font-size:15px">' +
     formateEcart(d) + "</span>";
   let h = "";
+  /* l'aperçu ne montre que ce que le fichier contiendra, avec les mêmes filtres */
+  const parts = partiesProduites(), t = typeCourant();
+  const natP = t.id === "p2a" ? natureP2A() : "tous";
+  const filtres = [];
+  if(filtrePrioriteActif()) filtres.push("Priorités : " + (listePrioritesRetenues().sort(comparePriorites).join(", ") || "aucune"));
+  if(filtreCategorieActif() && parts.includes("d4")) filtres.push(mentionCategories().replace(/^ — /, ""));
+  if(parts.includes("d5")){
+    filtres.push("Millésimes P2A : " + ((cfg.p2aChoisis || []).join(", ") || "aucun"));
+    if(natP !== "tous") filtres.push("Nature P2A : " + LIBELLES_NATURE_P2A[natP]);
+  }
+  h += '<div class="msg">' + esc(t.nom) + (t.sortie === "pdf" ? " (PDF)" : " (diaporama)") + " — " +
+       (filtres.length ? esc(filtres.join(" · ")) : "aucun filtre actif") + "</div>";
+  if(!parts.some(d => ["d2", "d3", "d4", "d5"].includes(d)))
+    h += '<p class="aide">Les parties retenues n\'ont pas d\'aperçu chiffré.</p>';
 
   if(ecarts){
     h += '<div class="msg ok">Comparaison : <b>' + esc(ecarts.libelleA) + "</b> par rapport à <b>" +
@@ -1684,8 +1698,10 @@ function dessineApercu(){
          "</div>";
   }
 
-  h += '<div class="duo">';
-  [["PEPS", c.peps, "peps"], ["Actions à valoriser", c.av, "av"]].forEach(([titre, b, cle]) => {
+  const blocsPA = [["PEPS", c.peps, "peps", "d2"], ["Actions à valoriser", c.av, "av", "d3"]]
+    .filter(x => parts.includes(x[3]));
+  if(blocsPA.length) h += '<div class="duo">';
+  blocsPA.forEach(([titre, b, cle]) => {
     const e = ecarts ? ecarts[cle] : null;
     h += "<fieldset><legend>" + titre + "</legend>";
     h += '<div class="chiffre">' + b.stock + (e ? ec(e.stock, "neutre") : "") + "</div>";
@@ -1696,8 +1712,9 @@ function dessineApercu(){
     if(b.termines.length > 8) h += '<p class="aide">…et ' + (b.termines.length - 8) + " autre(s).</p>";
     h += "</fieldset>";
   });
-  h += "</div>";
+  if(blocsPA.length) h += "</div>";
 
+  if(parts.includes("d4")){
   const m = c.mec;
   h += "<fieldset><legend>MEC 2023</legend>";
   const em = ecarts ? ecarts.mec : null;
@@ -1713,13 +1730,21 @@ function dessineApercu(){
         Object.entries(m.parValeur).map(([v, d]) =>
           [v, d.famille === "reco" ? "Recommandation" : "Rappel au droit", d.total, d.reste]));
   h += "</fieldset>";
+  }
 
-  h += "<fieldset><legend>P2A</legend>";
-  const p = c.p2a;
+  if(parts.includes("d5")){
+  h += "<fieldset><legend>P2A" + (natP !== "tous" ? " — " + esc(LIBELLES_NATURE_P2A[natP]) : "") + "</legend>";
+  /* même périmètre que le PDF : la nature P2A choisie s'applique aussi ici */
+  const lignesP = c.p2a.lignes.filter(l => natureP2ARetenue(l.nature, natP));
+  const parMil = {};
+  (cfg.p2aChoisis || []).forEach(m => parMil[m] = 0);
+  lignesP.forEach(l => String(l.millesimes).split(" · ").forEach(m => { if(m in parMil) parMil[m]++; }));
+  const p = { lignes: lignesP, parMillesime: parMil };
   if(!p.lignes.length){
     h += '<p class="aide">Aucun millésime sélectionné, ou aucune ligne concernée.</p>';
   }else{
-    const ep = ecarts ? ecarts.p2a : null;
+    // les écarts portent sur toutes les natures : on ne les montre pas sur un sous-ensemble
+    const ep = ecarts && natP === "tous" ? ecarts.p2a : null;
     h += '<div class="chiffre">' + p.lignes.length +
          (ep && ep.comparable ? ec(ep.total, "neutre") : "") + "</div>";
     h += '<p class="aide">ligne(s) distincte(s) — ' +
@@ -1728,10 +1753,14 @@ function dessineApercu(){
              ? " (" + formateEcart(ep.parMillesime[k]) + ")" : "")).join(" · ") + "</p>";
     if(ep && ep.message) h += '<p class="aide" style="color:#C0504D">' + ep.message + "</p>";
     h += tableauHTML(["Millésimes", "Nature", "Libellé", "Avancement"],
-          p.lignes.slice(0, 12).map(l => [l.millesimes, l.nature, l.libelle, l.avancement + " %"]));
+          p.lignes.slice(0, 12).map(l => [l.millesimes, l.nature,
+            esc(l.libelle) + (l.estProjet ? "" : '<br><span class="aide">Projet : ' +
+              esc(l.libelleProjet || "non identifié") + "</span>"),
+            l.avancement + " %"]));
     if(p.lignes.length > 12) h += '<p class="aide">…et ' + (p.lignes.length - 12) + " autre(s).</p>";
   }
   h += "</fieldset>";
+  }
 
   $("apercu").innerHTML = h;
 }
