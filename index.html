@@ -3708,8 +3708,11 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
   const champ = jeu.sommaireCle || "categorie";
   const categories = categoriesOrdonnees(jeu);
   for(const cat of categories){
+    /* les actions MEO se rangent sous le projet auquel elles sont rattachées */
+    const cleTri = l => String(l.projetRattache || l.libelle);
     const membres = jeu.lignes.filter(l => l[champ] === cat.cle)
-      .sort((a, b) => String(a.libelle).localeCompare(String(b.libelle), "fr", { numeric:true }));
+      .sort((a, b) => cleTri(a).localeCompare(cleTri(b), "fr", { numeric:true }) ||
+                      String(a.libelle).localeCompare(String(b.libelle), "fr", { numeric:true }));
     if(!membres.length) continue;
     if(y > bas - 14) y = nouvelleFeuillePdf(doc, ctx);
 
@@ -3722,12 +3725,22 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
                           { pageNumber:cibleCat.page, top:cibleCat.top });
     y += 6;
 
+    let projetCourant = null;
     for(const r of membres){
       if(y > bas - 6) y = nouvelleFeuillePdf(doc, ctx);
+      if(r.projetRattache && r.projetRattache !== projetCourant){
+        projetCourant = r.projetRattache;
+        doc.setFontSize(7.5); doc.setFont("helvetica", "bold"); doc.setTextColor(...GRIS_P);
+        doc.text(lignesCellule(doc, "Projet : " + r.projetRattache, largeurTexte, 1)[0] || "", MARGE_P + 5, y);
+        doc.setFont("helvetica", "normal");
+        y += 4.8;
+        if(y > bas - 6) y = nouvelleFeuillePdf(doc, ctx);
+      }else if(!r.projetRattache) projetCourant = String(r.libelle);   // ses MEO suivent sans rappel
+      const retrait = r.projetRattache ? 4 : 0;
       doc.setFontSize(7.5);
-      const texte = lignesCellule(doc, r.libelle, largeurTexte, 1)[0];
+      const texte = lignesCellule(doc, r.libelle, largeurTexte - retrait, 1)[0];
       doc.setTextColor(61, 61, 58);
-      doc.text(texte || "—", MARGE_P + 5, y);
+      doc.text(texte || "—", MARGE_P + 5 + retrait, y);
       if(avecPrio && r.priorite && r.priorite !== "—"){
         doc.setTextColor(...GRIS_P);
         doc.text(lignesCellule(doc, r.priorite, largeurPrio - 2, 1)[0] || "",
@@ -3905,6 +3918,7 @@ function jeuP2A(c, nature){
     // Une action MEO rappelle, sous son intitulé, le projet auquel elle est rattachée.
     libelle: l.estProjet ? l.libelle
       : l.libelle + "\nProjet : " + (l.libelleProjet || "non identifié"),
+    projetRattache: l.estProjet ? "" : (l.libelleProjet || "non identifié"),
     porteur: l.porteur,
     groupement: l.groupement,
     priorite: l.priorite,
