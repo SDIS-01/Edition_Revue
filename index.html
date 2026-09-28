@@ -2571,7 +2571,9 @@ function pagesP2ASuite(doc, c){
     tableauPagine(doc, { page:pageTerm, x:MARGE, y:Y_CONTENU, titreSuite:null,
       largeurs:[4.0, 12.6, 2.4, 6.2],
       entetes:["Groupement", "Libellé", "Nature", "Porteur"],
-      lignes:termines.map(l => [l.groupement, l.libelle, l.nature, l.porteur]) });
+      lignes:termines.map(l => [l.groupement,
+        l.estProjet ? l.libelle : l.libelle + " (projet : " + (l.libelleProjet || "non identifié") + ")",
+        l.nature, l.porteur]) });
   }
 
   // --- détail : par groupement, chaque MEO sous son projet ---
@@ -3625,7 +3627,7 @@ function pageDetailPdf(doc, ctx, jeu){
         doc.setFontSize(7.5);
         const cellules = colonnes.map(c => c.cle === "avancement" ? [""]
           : c.cle === "echeance" ? [r.echeance ? jjmmaaaa(r.echeance) : "—"]
-          : lignesCellule(doc, r[c.cle], c.l, c.cle === "commentaire" ? 8 : 3));
+          : lignesCellule(doc, r[c.cle], c.l, c.cle === "commentaire" ? 8 : (c.cle === "libelle" ? 5 : 3)));
         const hauteur = Math.max(6, Math.max(...cellules.map(t => t.length)) * 3.4 + 3);
         if(y + hauteur > bas) y = enteteGroupe(nouvelleFeuillePdf(doc, ctx), true);
         const cible = { page:doc.internal.getNumberOfPages(), top:Math.max(0, y - 6) };
@@ -3871,7 +3873,9 @@ function jeuP2A(c, nature){
   const rangNature = n => (n === "PEPS" ? 0 : (n === "AV" ? 1 : 2));
   const choix = nature || "tous";
   const lignes = c.p2a.lignes.filter(l => natureP2ARetenue(l.nature, choix)).map(l => ({
-    libelle: l.libelle,
+    // Une action MEO rappelle, sous son intitulé, le projet auquel elle est rattachée.
+    libelle: l.estProjet ? l.libelle
+      : l.libelle + "\nProjet : " + (l.libelleProjet || "non identifié"),
     porteur: l.porteur,
     groupement: l.groupement,
     priorite: l.priorite,
