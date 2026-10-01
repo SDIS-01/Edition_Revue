@@ -243,6 +243,7 @@
       <legend>Colonnes du détail (PDF)</legend>
       <div class="cases" id="colDetail">
         <label><input type="checkbox" id="detPriorite" checked> Priorité</label>
+        <label><input type="checkbox" id="detOrigine" checked> Origine (CASDIS / ajout)</label>
         <label><input type="checkbox" id="detPorteur" checked> Porteur</label>
         <label><input type="checkbox" id="detGroupement" checked> Groupement</label>
         <label><input type="checkbox" id="detSponsor" checked> Sponsor CODIR</label>
@@ -313,6 +314,7 @@ const CHAMPS_PEPS = [
   ["colPorteur",    "Porteur"],
   ["colGroupement", "Groupement"],
   ["colPriorite",   "Priorité"],
+  ["colOrigine",    "Origine (CASDIS / ajout)"],
   ["colAvancement", "Avancement"],
   ["colDebut",      "Date de début"],
   ["colFin",        "Date de fin"],
@@ -659,6 +661,7 @@ function devine(colonnes, motifs){
 const INDICES = {
   colNature:["nature"], colLibelle:["libelle","libellé","intitule","titre","nom"],
   colPorteur:["porteur","pilote"], colGroupement:["groupement"], colPriorite:["priorite","priorité"],
+  colOrigine:["casdis_n","casdis","origine_inscription","origine"],
   colAvancement:["avancement"], colDebut:["date_debut","date_début","debut"],
   colFin:["date_fin","fin"], colSuspension:["date_suspension","suspension"],
   colAbandon:["date_abandon","abandon"], colP2A:["p2a"],
@@ -924,6 +927,20 @@ function prioriteEffective(l){
   if(propre || !cfg.colIdProjet) return propre;
   const parent = projetsParId.get(txt(l[cfg.colIdProjet]));
   return parent && parent !== l ? txt(parent[cfg.colPriorite]) : "";
+}
+
+/* Origine d'inscription (CASDIS_12_2025, Ajout_2026…). La colonne peut renvoyer
+   une liste (formule lookupRecords) : vides et doublons sont écartés.
+   Une action (MEO) sans origine hérite de celle de son projet. */
+function origineDe(v){
+  return [...new Set(versListe(v).map(x => x.trim()).filter(Boolean))].join(" · ");
+}
+function origineEffective(l){
+  if(!cfg.colOrigine) return "";
+  const propre = origineDe(l[cfg.colOrigine]);
+  if(propre || !cfg.colIdProjet) return propre;
+  const parent = projetsParId.get(txt(l[cfg.colIdProjet]));
+  return parent && parent !== l ? origineDe(parent[cfg.colOrigine]) : "";
 }
 
 function filtrePrioriteActif(){
@@ -1315,6 +1332,7 @@ function bilanNature(nature, jan1, finAnnee, fraction){
     porteur: txt(l[cfg.colPorteur]),
     groupement: txt(l[cfg.colGroupement]),
     priorite: prioriteEffective(l) || "—",
+    origine: origineEffective(l) || "—",
     sponsor: sponsorProjet(l),
     commentaire: txt(l[cfg.colCommentaire]),
     avancement: versPourcent(l[cfg.colAvancement], fraction)
@@ -1403,6 +1421,7 @@ function bilanP2A(fraction){
       porteur: txt(l[cfg.colPorteur]),
       groupement,
       priorite: prioriteEffective(l),
+      origine: origineEffective(l),
       sponsor: sponsorProjet(l),
       commentaire: txt(l[cfg.colCommentaire]),
       avancement: versPourcent(l[cfg.colAvancement], fraction),
@@ -2270,13 +2289,13 @@ function pageNature(doc, c, b, titre, cle){
     titreSuite:null, lignes:matrice });
   page = etat.page; y = etat.y + 0.7;
 
-  const colonnes = [11.0, 3.2, 4.6, 3.4, 3.0];
+  const colonnes = [9.0, 2.6, 3.2, 4.0, 3.4, 3.0];
   if(b.termines.length){
     y = section(doc, page, y, "Terminés dans l'année");
     etat = tableauPagine(doc, { page, x:MARGE, y, titreSuite:null,
       titreSection:"Terminés dans l'année", largeurs:colonnes,
-      entetes:["Libellé", "Priorité", "Porteur", "Groupement", "Fin"],
-      lignes:b.termines.map(t => [t.libelle, t.priorite, t.porteur, t.groupement, t.date]) });
+      entetes:["Libellé", "Priorité", "Origine", "Porteur", "Groupement", "Fin"],
+      lignes:b.termines.map(t => [t.libelle, t.priorite, t.origine, t.porteur, t.groupement, t.date]) });
     page = etat.page; y = etat.y + 0.7;
   }
 
@@ -2285,9 +2304,9 @@ function pageNature(doc, c, b, titre, cle){
     y = section(doc, page, y, "Interrompus dans l'année");
     tableauPagine(doc, { page, x:MARGE, y, titreSuite:null,
       titreSection:"Interrompus dans l'année",
-      largeurs:[7.8, 2.6, 4.0, 7.8, 3.0], maxLignes:3,
-      entetes:["Libellé", "Priorité", "Porteur", "Motif", "Date"],
-      lignes:b.interrompus.map(t => [t.libelle, t.priorite, t.porteur, t.motif, t.date]) });
+      largeurs:[6.6, 2.4, 3.2, 3.4, 6.6, 3.0], maxLignes:3,
+      entetes:["Libellé", "Priorité", "Origine", "Porteur", "Motif", "Date"],
+      lignes:b.interrompus.map(t => [t.libelle, t.priorite, t.origine, t.porteur, t.motif, t.date]) });
   }
 
   if(!b.termines.length && !b.interrompus.length){
@@ -2598,11 +2617,11 @@ function pagesP2ASuite(doc, c){
                           texte:"Aucune ligne terminée sur ce périmètre." });
   }else{
     tableauPagine(doc, { page:pageTerm, x:MARGE, y:Y_CONTENU, titreSuite:null,
-      largeurs:[4.0, 12.6, 2.4, 6.2],
-      entetes:["Groupement", "Libellé", "Nature", "Porteur"],
+      largeurs:[4.0, 10.4, 2.4, 3.4, 5.0],
+      entetes:["Groupement", "Libellé", "Nature", "Origine", "Porteur"],
       lignes:termines.map(l => [l.groupement,
         l.estProjet ? l.libelle : l.libelle + " (projet : " + (l.libelleProjet || "non identifié") + ")",
-        l.nature, l.porteur]) });
+        l.nature, l.origine || "—", l.porteur]) });
   }
 
   // --- détail : par groupement, chaque MEO sous son projet ---
@@ -2639,6 +2658,7 @@ function pagesP2ASuite(doc, c){
           { texte: premier ? g : "", gras:true },
           projet.libelle,
           projet.nature,
+          projet.origine || "—",
           projet.porteur,
           { texte:projet.avancement + " %", gras:true,
             couleur:encreAvancement(projet.avancement, projet.interrompu) }
@@ -2648,12 +2668,12 @@ function pagesP2ASuite(doc, c){
         ajoute([
           { texte: premier ? g : "", gras:true },
           { texte:fratrie[0].libelleProjet || "Projet non sélectionné", couleur:"#8a827c" },
-          "", "", ""
+          "", "", "", ""
         ]);
       }
       premier = false;
       actions.forEach(a => ajoute([
-        "", "— " + a.libelle, a.nature, a.porteur,
+        "", "— " + a.libelle, a.nature, a.origine || "—", a.porteur,
         { texte:a.avancement + " %", gras:true,
           couleur:encreAvancement(a.avancement, a.interrompu) }
       ]));
@@ -2663,9 +2683,9 @@ function pagesP2ASuite(doc, c){
   const pageDetail = nouvellePage(doc, "P2A — détail par groupement", null);
   tableauPagine(doc, { page:pageDetail, x:MARGE, y:Y_CONTENU - 3.2, titreSuite:null,
     repriseGroupe:true,
-    largeurs:[3.8, 11.6, 2.2, 4.0, 3.6],
-    entetes:["Groupement", "Libellé", "Nature", "Porteur", "Avancement"],
-    alignes:["start", "start", "center", "start", "center"],
+    largeurs:[3.8, 9.2, 2.2, 3.4, 3.6, 3.0],
+    entetes:["Groupement", "Libellé", "Nature", "Origine", "Porteur", "Avancement"],
+    alignes:["start", "start", "center", "start", "start", "center"],
     lignes:detail });
 }
 
@@ -3021,6 +3041,8 @@ function pageExergue(doc, ligne, toutes, ech){
   // Porteur : une case large, calée sur la hauteur des trois autres rangs.
   paireInfo(doc, page, 6.6, yHaut + pas, 2.0, 4.6, hCase + pas,
             "Porteur", ligne.porteur);
+  if(cfg.colOrigine)
+    paireInfo(doc, page, 6.6, yHaut, 2.0, 4.6, hCase, "Origine", ligne.origine);
 
   const statut = HEX_STATUT[statutDeLigne(ligne.avancement, ligne.interrompu)];
   const prio = HEX_PRIORITE.find(c => c.motif.test(String(ligne.priorite || "")));
@@ -3510,7 +3532,7 @@ function pageEvolutionPdf(doc, ctx, jeu, depart){
 
 /* Poids relatifs des colonnes du détail. Porteur et groupement ont besoin
    d'assez de place pour un « NOM Prénom » sur une seule ligne. */
-const POIDS = { libelle:2.8, priorite:0.9, porteur:1.5, groupement:1.3, sponsor:1.4,
+const POIDS = { libelle:2.8, priorite:0.9, origine:1.2, porteur:1.5, groupement:1.3, sponsor:1.4,
                 commentaire:2.6, echeance:1.15, date:0.9, avancement:0.6 };
 
 /* Colonnes du détail : le libellé et l'avancement sont toujours là,
@@ -3520,6 +3542,8 @@ function champsDetail(type){
                     titre: type.id === "mec" ? "Préconisation" : "Projet ou action" }];
   if(cfg.detPriorite !== false && type.id !== "mec" && cfg.colPriorite)
     champs.push({ cle:"priorite", titre:"Priorité" });
+  if(cfg.detOrigine !== false && type.id !== "mec" && cfg.colOrigine)
+    champs.push({ cle:"origine", titre:"Origine" });
   if(cfg.detPorteur !== false)    champs.push({ cle:"porteur",    titre:"Porteur" });
   if(cfg.detGroupement !== false) champs.push({ cle:"groupement", titre:"Groupement" });
   const sourceSponsor = type.id === "mec" ? "mec" : "projet";
@@ -3699,7 +3723,9 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
   const droite = droiteDe(doc), bas = basDe(doc);
   const avecPrio = jeu.champs && jeu.champs.some(c => c.cle === "priorite");
   const largeurPrio = avecPrio ? 24 : 0;
-  const largeurTexte = droite - MARGE_P - 34 - largeurPrio;
+  const avecOrig = jeu.champs && jeu.champs.some(c => c.cle === "origine");
+  const largeurOrig = avecOrig ? 30 : 0;
+  const largeurTexte = droite - MARGE_P - 34 - largeurPrio - largeurOrig;
 
   doc.setFontSize(11); doc.setTextColor(...ENCRE_P);
   doc.text("Sommaire", MARGE_P, y);
@@ -3745,6 +3771,11 @@ function dessinerSommaire(doc, ctx, jeu, ancres){
         doc.setTextColor(...GRIS_P);
         doc.text(lignesCellule(doc, r.priorite, largeurPrio - 2, 1)[0] || "",
                  MARGE_P + 7 + largeurTexte, y);
+      }
+      if(avecOrig && r.origine && r.origine !== "—"){
+        doc.setTextColor(...GRIS_P);
+        doc.text(lignesCellule(doc, r.origine, largeurOrig - 2, 1)[0] || "",
+                 MARGE_P + 7 + largeurTexte + largeurPrio, y);
       }
       const s = statutParCle(r.statut);
       doc.setTextColor(...s.encre);
@@ -3830,6 +3861,7 @@ function jeuProjets(c, natures){
         avancement: av,
         statut,
         priorite: prio,
+        origine: origineEffective(l) || "—",
         nature: nat,
         categorie: natures.length > 1 ? prio + " · " + nat : prio
       });
@@ -3922,6 +3954,7 @@ function jeuP2A(c, nature){
     porteur: l.porteur,
     groupement: l.groupement,
     priorite: l.priorite,
+    origine: l.origine || "—",
     sponsor: l.sponsor,
     commentaire: l.commentaire,
     echeance: l.echeance,
@@ -4087,7 +4120,7 @@ function rangCategorieMEC(valeur){
 /* Démarrage                                                           */
 /* ------------------------------------------------------------------ */
 
-const DET_COLONNES = ["detPriorite", "detPorteur", "detGroupement", "detSponsor",
+const DET_COLONNES = ["detPriorite", "detOrigine", "detPorteur", "detGroupement", "detSponsor",
                       "detCommentaire", "detEcheance"];
 
 /* Grist affiche « Ouvrir la configuration » dans le panneau latéral droit
